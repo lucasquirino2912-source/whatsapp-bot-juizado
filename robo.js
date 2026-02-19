@@ -284,7 +284,7 @@ client.on("message", async (msg) => {
         break;
       case "3":
         await typing();
-        await client.sendMessage(msg.from, "💰 Para consultar a expedição de alvarás ou o status da execução, informe o número do processo. Ressaltamos que se o processo tiver pendências sobre o envio do ofício requisitório para pagamento voluntário, a parte deve contactar a SERPREC (precatorios@tjrn.jus.br ou 3673-8350)." + voltarMenu);
+        await client.sendMessage(msg.from, "💰 Para consultar a expedição de alvarás ou o status da execução, informe o número do processo. Ressaltamos que se o processo estiver na fase de expedição do ofício requisitório de pagamento (RPV/precatório), eventuais dúvidas deverão ser tratadas diretamente com a SERPREC (serprec@tjrn.jus.br)." + voltarMenu);
         break;
       case "4":
         await typing();
