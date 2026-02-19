@@ -1,6 +1,7 @@
 // IMPORTAÇÕES
 // =====================================
 const qrcode = require("qrcode-terminal");
+const qrcodeImage = require("qrcode");
 const { Client, MessageMedia, LocalAuth } = require("whatsapp-web.js");
 const express = require("express");
 
@@ -8,9 +9,34 @@ const express = require("express");
 // =====================================
 const app = express();
 const PORT = process.env.PORT || 3000;
+let lastQr = null; // Armazena o QR Code atual
 
 app.get("/", (req, res) => {
   res.send("WhatsApp Bot Ativo");
+});
+
+// Rota para visualizar o QR Code no navegador
+app.get('/qr', (req, res) => {
+  if (lastQr) {
+    qrcodeImage.toDataURL(lastQr, (err, url) => {
+      if (err) {
+        res.status(500).send("Erro ao gerar imagem do QR Code");
+      } else {
+        res.send(`
+          <html>
+            <body style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif;">
+              <h2>Escaneie o QR Code abaixo:</h2>
+              <img src="${url}" style="border: 10px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.1);" />
+              <p>Atualize a página se o código expirar.</p>
+              <script>setTimeout(() => { location.reload(); }, 30000);</script>
+            </body>
+          </html>
+        `);
+      }
+    });
+  } else {
+    res.send("<h2>WhatsApp já está conectado ou o QR Code ainda não foi gerado.</h2>");
+  }
 });
 
 app.listen(PORT, "0.0.0.0", () => {
@@ -35,9 +61,10 @@ const client = new Client({
 // LISTENERS DO CLIENTE WHATSAPP
 // =====================================
 
-// QR Code para escanear
+// Evento de geração do QR Code
 client.on("qr", (qr) => {
-  console.log("\n🎯 QR CODE GERADO - Escaneie com seu WhatsApp:\n");
+  lastQr = qr; // Armazena o QR Code atual para exibir na rota /qr
+  console.log("📲 QR Code gerado. Acesse a rota /qr no navegador para escaneá-lo.");
   qrcode.generate(qr, { small: true });
 });
 
@@ -46,14 +73,15 @@ client.on("authenticated", () => {
   console.log("✅ Autenticado com sucesso!");
 });
 
-// Cliente pronto
+// WhatsApp Conectado
 client.on("ready", () => {
-  console.log("🎉 WhatsApp pronto para usar!\n");
+  lastQr = null; // Limpa o QR após conexão
+  console.log("✅ Tudo certo! WhatsApp conectado.");
 });
 
-// Desconectado
-client.on("disconnected", () => {
-  console.log("⚠️  Desconectado");
+// Desconexão
+client.on("disconnected", (reason) => {
+  console.log("⚠️ Desconectado:", reason);
 });
 
 // Erro
