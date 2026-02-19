@@ -69,7 +69,15 @@ const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 console.log("\n🚀 INICIANDO BOT WHATSAPP...\n");
 
 // Iniciar cliente
-client.initialize();
+(async () => {
+  try {
+    console.log("📱 Conectando ao WhatsApp...");
+    await client.initialize();
+    console.log("✅ Cliente inicializado com sucesso!");
+  } catch (err) {
+    console.error("❌ Erro ao inicializar:", err.message);
+  }
+})();
 
 // =====================================
 // EXCEPTION HANDLERS
