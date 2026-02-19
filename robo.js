@@ -145,43 +145,66 @@ if (fs.existsSync(authDir)) {
   }
 }
 
-// Registra listeners ANTES de initialize
-console.log("[LOG] Registrando listeners de eventos...");
+// Função auxiliar para log com flush
+const logWithFlush = (msg) => {
+  console.log(msg);
+  process.stdout.write("");
+};
 
-// Universal listener para debug
+// Registra listeners ANTES de initialize
+logWithFlush("[LOG] Registrando listeners de eventos...");
+
+// Universal listener para debug - log IMEDIATO de qualquer evento
 client.on("all", (event, ...args) => {
-  if (!event.includes("message") && !event.includes("contact_changed")) {
-    const arg0Str = args.length > 0 ? JSON.stringify(args[0]).substring(0, 80) : "";
-    console.log(`[EVENT] ${event} ${arg0Str ? "→ " + arg0Str : ""}`);
-  }
+  const timestamp = new Date().toISOString().split("T")[1].split(".")[0];
+  const arg0Str = args.length > 0 ? JSON.stringify(args[0]).substring(0, 60) : "";
+  logWithFlush(`[${timestamp}] [EVENT] ${event} ${arg0Str ? "→ " + arg0Str : ""}`);
 });
 
-console.log("[LOG] ✅ Listeners registrados\n");
+logWithFlush("[LOG] ✅ Listeners registrados\n");
 
-// Timeout para log de debug caso o cliente demore muito
+// Timeout para log de debug IMEDIATO com flush
+let initialized = false;
 setTimeout(() => {
-  console.log("[DEBUG] ⏱️ 10 segundos se passaram, cliente ainda inicializando...");
+  if (!initialized) {
+    logWithFlush("[DEBUG] ⏱️ 10 SEGUNDOS - Cliente ainda inicializando");
+  }
 }, 10000);
 
 setTimeout(() => {
-  console.log("[DEBUG] ⏱️ 30 segundos se passaram, cliente ainda inicializando...");
-  console.log("[DEBUG] Possível: problema de WebSocket, sessão persistida ou Puppeteer");
+  if (!initialized) {
+    logWithFlush("[DEBUG] ⏱️ 30 SEGUNDOS - Cliente AINDA inicializando");
+    logWithFlush("[DEBUG] Se está aqui, pode ser: WebSocket hang, Puppeteer browser stuck, ou sessão travada");
+  }
 }, 30000);
 
 setTimeout(() => {
-  console.log("[DEBUG] ⏱️ 60 segundos se passaram, verifique erros acima");
+  if (!initialized) {
+    logWithFlush("[DEBUG] ⏱️ 60 SEGUNDOS - TIMEOUT CRÍTICO - Processo pode estar hung");
+  }
 }, 60000);
 
-// Chamando initialize
-console.log("[LOG] Iniciando cliente.initialize()...");
-client.initialize()
+// Wrapper com timeout de segurança
+const initPromise = Promise.race([
+  client.initialize(),
+  new Promise((_, reject) => 
+    setTimeout(() => reject(new Error("initialize() timeout após 90 segundos")), 90000)
+  )
+]);
+
+logWithFlush("[LOG] Chamando client.initialize()...");
+initPromise
   .then(() => {
-    console.log("[LOG] ✅ client.initialize() resolvido!");
+    initialized = true;
+    logWithFlush("[LOG] ✅✅✅ client.initialize() RESOLVIDO COM SUCESSO! ✅✅✅");
   })
   .catch((err) => {
-    console.error("❌ client.initialize() falhou:");
-    console.error("   Erro:", err.message);
-    console.error("   Stack:", err.stack ? err.stack.split("\n").slice(0, 3).join("\n   ") : "N/A");
+    initialized = true;
+    logWithFlush("❌❌❌ client.initialize() FALHOU ❌❌❌");
+    logWithFlush("Erro: " + (err.message || String(err)));
+    if (err.stack) {
+      logWithFlush("Stack: " + err.stack.split("\n").slice(0, 5).join("\n"));
+    }
   });
 
 // =====================================
