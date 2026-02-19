@@ -1,288 +1,65 @@
 // IMPORTAÇÕES
 // =====================================
 const qrcode = require("qrcode-terminal");
-const qrcodeImage = require("qrcode");
-const fs = require("fs");
-const path = require("path");
 const { Client, MessageMedia, LocalAuth } = require("whatsapp-web.js");
-const puppeteer = require("puppeteer");
 
 // CONFIGURAÇÃO DO CLIENTE
 // =====================================
-const puppeteerArgs = [
-  "--no-sandbox",
-  "--disable-setuid-sandbox",
-  "--disable-dev-shm-usage",
-  "--disable-gpu",
-  "--disable-web-resources",
-  "--disable-features=IsolateOrigins,site-per-process",
-];
-
-// Se está em Docker, usa Chromium do sistema
-if (process.env.NODE_ENV === "production") {
-  puppeteerArgs.push("--disable-default-apps");
-}
-
-// Detecta o caminho do Chromium no ambiente de produção
-let chromiumPath = undefined;
-if (process.env.NODE_ENV === "production") {
-  const candidates = [
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-    "/usr/bin/google-chrome"
-  ];
-  for (const path of candidates) {
-    if (fs.existsSync(path)) {
-      chromiumPath = path;
-      console.log("[INFO] Chromium detectado em:", path);
-      break;
-    }
-  }
-  if (!chromiumPath) {
-    console.warn("[WARN] Nenhum executável Chromium encontrado nos caminhos padrão!");
-  }
-}
-
 const client = new Client({
   authStrategy: new LocalAuth(),
-  puppeteer: {
-    headless: true,
-    args: puppeteerArgs,
-    executablePath: chromiumPath,
-    skipBrowserDownload: process.env.NODE_ENV === "production",
-    timeout: 30000,
-    defaultViewport: null,
-  },
-  webVersion: "2.2412.54",
 });
 
 // =====================================
 // LISTENERS DO CLIENTE WHATSAPP
 // =====================================
 
-// Log de QR Code
+// QR Code para escanear
 client.on("qr", (qr) => {
-  console.log("\n\n");
-  console.log("═════════════════════════════════════════════════════════");
-  console.log("📲 QR CODE GERADO - Escaneie o código abaixo com seu WhatsApp");
-  console.log("═════════════════════════════════════════════════════════");
+  console.log("\n🎯 QR CODE GERADO - Escaneie com seu WhatsApp:\n");
   qrcode.generate(qr, { small: true });
-  console.log("═════════════════════════════════════════════════════════\n\n");
-  
-  // Gerar e salvar QR Code como imagem PNG
-  const qrPath = path.join(__dirname, "qrcode.png");
-  qrcodeImage.toFile(qrPath, qr, { width: 300 }, (err) => {
-    if (err) {
-      console.error("❌ Erro ao gerar QR Code PNG:", err);
-    } else {
-      console.log(`✅ QR Code PNG salvo em: ${qrPath}`);
-    }
-  });
 });
 
-// Log de autenticação
+// Cliente autenticado
 client.on("authenticated", () => {
-  console.log("🔐 Autenticado com sucesso!");
+  console.log("✅ Autenticado com sucesso!");
 });
 
-// Log de pronto
+// Cliente pronto
 client.on("ready", () => {
-  console.log("\n✅ ✅ ✅ Tudo certo! WhatsApp conectado e pronto para usar! ✅ ✅ ✅\n");
+  console.log("🎉 WhatsApp pronto para usar!\n");
 });
 
-// Log de desconexão
-client.on("disconnected", (reason) => {
-  console.log("⚠️ Desconectado:", reason);
-  console.log("Tentando reconectar em 5 segundos...");
+// Desconectado
+client.on("disconnected", () => {
+  console.log("⚠️  Desconectado");
 });
 
-// Log de erro
+// Erro
 client.on("error", (err) => {
-  console.error("❌ ERRO NO CLIENTE WHATSAPP:", err.message || err);
+  console.error("❌ Erro:", err.message);
 });
 
 // =====================================
-// INICIALIZAÇÃO DO SERVIDOR DE MONITORAMENTO (Express)
+// MANIPULADOR DE MENSAGENS
 // =====================================
-const express = require('express');
-const app = express();
-const PORT = process.env.PORT || 3000;
+const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-app.get('/', (req, res) => {
-  res.send('WhatsApp bot running');
-});
+console.log("\n🚀 INICIANDO BOT WHATSAPP...\n");
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', port: PORT });
-});
-
-app.get('/status', (req, res) => {
-  const connected = client && client.info && client.info.pushname ? true : false;
-  res.json({ connected, info: client && client.info ? client.info : null });
-});
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor de monitoramento rodando na porta ${PORT}`);
-});
-
-// =====================================
-// INICIALIZAÇÃO E STARTUP
-// =====================================
-
-console.log("\n\n🚀 INICIANDO BOT WHATSAPP...\n");
-console.log(`[LOG] NODE_ENV: ${process.env.NODE_ENV}`);
-console.log(`[LOG] Chromium Path: ${chromiumPath || "não especificado (Puppeteer baixará)"}`);
-console.log(`[LOG] Iniciando cliente WhatsApp Web...\n`);
-
-// Verifica se há sessão anterior
-const authDir = path.join(__dirname, ".wwebjs_auth");
-if (fs.existsSync(authDir)) {
-  console.log(`[INFO] Limpando sessão anterior para gerar novo QR Code...`);
-  try {
-    fs.rmSync(authDir, { recursive: true, force: true });
-    console.log("[INFO] ✅ Sessão anterior removida");
-  } catch (err) {
-    console.error("[WARN] Erro ao limpar sessão:", err.message);
-  }
-}
+// Iniciar cliente
+client.initialize();
 
 // =====================================
 // EXCEPTION HANDLERS
 // =====================================
 
 process.on("uncaughtException", (err) => {
-  console.log("❌ [EXCEPTION] " + err.message);
-  console.log(err.stack);
+  console.error("❌ Erro não capturado:", err.message);
 });
 
-process.on("unhandledRejection", (reason) => {
-  console.log("❌ [REJECTION] " + String(reason));
+process.on("unhandledRejection", (err) => {
+  console.error("❌ Promise rejeitada:", err);
 });
-
-// =====================================
-// CONFIGURAR LISTENERS DO CLIENTE
-// =====================================
-
-console.log("[LOG] Registrando event listeners...");
-
-let qrReceived = false;
-let isConnected = false;
-
-client.on("qr", (qr) => {
-  qrReceived = true;
-  console.log("\n[EVENT] ⚡ QR CODE GERADO - ESCANEIE COM WHATSAPP ⚡");
-  console.log("═══════════════════════════════════════════════════════");
-  qrcode.generate(qr, { small: true });
-  console.log("═══════════════════════════════════════════════════════\n");
-  
-  // Gerar PNG do QR Code
-  const qrPath = path.join(__dirname, "qrcode.png");
-  qrcodeImage.toFile(qrPath, qr, { width: 300 }, (err) => {
-    if (!err) console.log(`[INFO] QR Code salvo em: ${qrPath}`);
-  });
-});
-
-client.on("authenticated", () => {
-  console.log("[EVENT] ✅ Autenticado com sucesso!");
-});
-
-client.on("ready", () => {
-  isConnected = true;
-  console.log("\n[EVENT] 🎉 WhatsApp PRONTO PARA USAR! 🎉\n");
-});
-
-client.on("disconnected", (reason) => {
-  isConnected = false;
-  console.log("[EVENT] ⚠️  Desconectado:", reason);
-});
-
-client.on("error", (err) => {
-  console.log("[EVENT] ❌ Erro:", err.message);
-});
-
-console.log("[LOG] Listeners registrados ✅\n");
-
-// =====================================
-// FUNÇÃO DE INICIALIZAÇÃO ASYNC
-// =====================================
-
-const initializeBot = async () => {
-  console.log("[INIT] Iniciando sequência de conexão...");
-  
-  // PASSO 1: Inicializar cliente WhatsApp (sem teste prévio)
-  console.log("[INIT-1] Inicializando cliente WhatsApp Web...");
-  console.log("[INIT-1] Isso pode levar 30-120 segundos...");
-  
-  try {
-    const initPromise = client.initialize();
-    
-    // Timeout de 120 segundos para initialize
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => {
-        console.log("[INIT-1] ⏱️  Aguardando QR Code (pode levar mais tempo)...");
-        reject(new Error("Initialize timeout (120s)"));
-      }, 120000);
-    });
-    
-    await Promise.race([initPromise, timeoutPromise]);
-    console.log("[INIT-1] ✅ Cliente inicializado com sucesso");
-  } catch (err) {
-    console.log("[INIT-1] ❌ ERRO na inicialização:");
-    console.log(`        ${err.message}`);
-    console.log("[INIT] Reiniciando em 20 segundos...");
-    setTimeout(() => {
-      console.log("[INIT] Reeniciando...");
-      initializeBot();
-    }, 20000);
-  }
-};
-
-// =====================================
-// MONITOR DE CONEXÃO
-// =====================================
-
-const monitorConnection = () => {
-  let checkCount = 0;
-  let timeout = 0;
-  
-  const monitor = setInterval(() => {
-    checkCount++;
-    timeout++;
-    
-    const status = qrReceived ? "QR recebido" : "Aguardando QR";
-    console.log(`[MONITOR] ${checkCount}s - ${status} ${isConnected ? '| Conectado ✅' : ''}`);
-    
-    // Se recebeu QR, para de logar
-    if (qrReceived && checkCount > 5) {
-      console.log("[MONITOR] Aguardando escaneamento do QR Code...");
-      clearInterval(monitor);
-      return;
-    }
-    
-    // Timeout: se passar 120s sem resultado, reinicia
-    if (timeout >= 120) {
-      console.log("[MONITOR] ❌ TIMEOUT 120s - Reiniciando...");
-      clearInterval(monitor);
-      initializeBot();
-    }
-  }, 1000);
-};
-
-// =====================================
-// INICIAR BOT
-// =====================================
-
-console.log("[STARTUP] Aguarde...\n");
-
-(async () => {
-  await initializeBot();
-  monitorConnection();
-})();
-
-// =====================================
-// FUNÇÃO DE DELAY
-// =====================================
-const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
 // =====================================
 // FUNIL DE MENSAGENS (SOMENTE PRIVADO)
