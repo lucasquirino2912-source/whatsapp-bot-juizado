@@ -132,10 +132,31 @@ console.log(`[LOG] NODE_ENV: ${process.env.NODE_ENV}`);
 console.log(`[LOG] Chromium Path: ${chromiumPath || "não especificado (Puppeteer baixará)"}`);
 console.log(`[LOG] Iniciando cliente WhatsApp Web...\n`);
 
+// Verifica se há sessão anterior
+const authDir = path.join(__dirname, ".wwebjs_auth");
+if (fs.existsSync(authDir)) {
+  console.log(`[INFO] Pasta de autenticação encontrada em: ${authDir}`);
+  console.log("[INFO] Limpando sessão anterior para gerar novo QR Code...");
+  try {
+    fs.rmSync(authDir, { recursive: true, force: true });
+    console.log("[INFO] ✅ Pasta de autenticação foi limpa!");
+  } catch (err) {
+    console.error("[WARN] Erro ao limpar pasta de autenticação:", err.message);
+  }
+}
+
+// Timeout para log de debug caso o cliente demore muito
+setTimeout(() => {
+  console.log("[DEBUG] ⏱️ Cliente ainda inicializando após 10 segundos...");
+}, 10000);
+
 client.initialize().catch((err) => {
   console.error("❌ ERRO CRÍTICO ao inicializar o WhatsApp Web:", err.message || err);
   console.error(err.stack);
 });
+
+// Log após initialize ser chamado
+console.log("[LOG] client.initialize() foi chamado com sucesso\n");
 
 // =====================================
 // FUNÇÃO DE DELAY
