@@ -55,35 +55,48 @@ const client = new Client({
 });
 
 // =====================================
-// QR CODE
+// LISTENERS DO CLIENTE WHATSAPP
 // =====================================
+
+// Log de QR Code
 client.on("qr", (qr) => {
-  console.log("📲 Escaneie o QR Code abaixo:");
+  console.log("\n\n");
+  console.log("═════════════════════════════════════════════════════════");
+  console.log("📲 QR CODE GERADO - Escaneie o código abaixo com seu WhatsApp");
+  console.log("═════════════════════════════════════════════════════════");
   qrcode.generate(qr, { small: true });
+  console.log("═════════════════════════════════════════════════════════\n\n");
   
   // Gerar e salvar QR Code como imagem PNG
   const qrPath = path.join(__dirname, "qrcode.png");
   qrcodeImage.toFile(qrPath, qr, { width: 300 }, (err) => {
     if (err) {
-      console.error("❌ Erro ao gerar QR Code:", err);
+      console.error("❌ Erro ao gerar QR Code PNG:", err);
     } else {
-      console.log(`✅ QR Code salvo em: ${qrPath}`);
+      console.log(`✅ QR Code PNG salvo em: ${qrPath}`);
     }
   });
 });
 
-// =====================================
-// WHATSAPP CONECTADO
-// =====================================
-client.on("ready", () => {
-  console.log("✅ Tudo certo! WhatsApp conectado.");
+// Log de autenticação
+client.on("authenticated", () => {
+  console.log("🔐 Autenticado com sucesso!");
 });
 
-// =====================================
-// DESCONEXÃO
-// =====================================
+// Log de pronto
+client.on("ready", () => {
+  console.log("\n✅ ✅ ✅ Tudo certo! WhatsApp conectado e pronto para usar! ✅ ✅ ✅\n");
+});
+
+// Log de desconexão
 client.on("disconnected", (reason) => {
   console.log("⚠️ Desconectado:", reason);
+  console.log("Tentando reconectar em 5 segundos...");
+});
+
+// Log de erro
+client.on("error", (err) => {
+  console.error("❌ ERRO NO CLIENTE WHATSAPP:", err.message || err);
 });
 
 // =====================================
@@ -113,9 +126,14 @@ app.listen(PORT, '0.0.0.0', () => {
 // =====================================
 // INICIALIZA
 // =====================================
-console.log('Inicializando WhatsApp Web client...');
+console.log("\n\n🚀 INICIANDO BOT WHATSAPP...\n");
+console.log(`[LOG] NODE_ENV: ${process.env.NODE_ENV}`);
+console.log(`[LOG] Chromium Path: ${chromiumPath || "não especificado (Puppeteer baixará)"}`);
+console.log(`[LOG] Iniciando cliente WhatsApp Web...\n`);
+
 client.initialize().catch((err) => {
-  console.error('Erro ao inicializar o WhatsApp Web:', err);
+  console.error("❌ ERRO CRÍTICO ao inicializar o WhatsApp Web:", err.message || err);
+  console.error(err.stack);
 });
 
 // =====================================
