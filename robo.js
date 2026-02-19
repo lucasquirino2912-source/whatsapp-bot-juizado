@@ -10,12 +10,12 @@ const express = require("express");
 const app = express();
 const PORT = process.env.PORT || 3000;
 let lastQr = null; // Armazena o QR Code atual
+let statusMessage = "Iniciando..."; // Status da conexão
 
-app.get("/", (req, res) => {
-  res.send("WhatsApp Bot Ativo");
-});
+// ROTAS DO SERVIDOR WEB
+// =====================================
 
-// Rota para visualizar o QR Code no navegador
+// Rota principal para ver o QR Code (Essencial para o Render)
 app.get('/qr', (req, res) => {
   if (lastQr) {
     qrcodeImage.toDataURL(lastQr, (err, url) => {
@@ -24,10 +24,14 @@ app.get('/qr', (req, res) => {
       } else {
         res.send(`
           <html>
-            <body style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif;">
-              <h2>Escaneie o QR Code abaixo:</h2>
-              <img src="${url}" style="border: 10px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.1);" />
-              <p>Atualize a página se o código expirar.</p>
+            <head><title>QR Code WhatsApp</title></head>
+            <body style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; background-color: #f0f2f5;">
+              <div style="background:white; padding: 40px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align:center;">
+                <h2 style="color: #128c7e;">Digitalize o QR Code abaixo:</h2>
+                <img src="${url}" style="border: 1px solid #ddd; margin: 20px 0;" />
+                <p style="color: #666;">Status atual: <strong>${statusMessage}</strong></p>
+                <p style="font-size: 0.8em; color: #999;">A página irá atualizar automaticamente a cada 30 segundos.</p>
+              </div>
               <script>setTimeout(() => { location.reload(); }, 30000);</script>
             </body>
           </html>
@@ -35,12 +39,33 @@ app.get('/qr', (req, res) => {
       }
     });
   } else {
-    res.send("<h2>WhatsApp já está conectado ou o QR Code ainda não foi gerado.</h2>");
+    res.send(`
+      <html>
+        <body style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif;">
+          <h2>${statusMessage}</h2>
+          <p>Se o bot estiver "Iniciando", aguarde até 2 minutos e atualize esta página.</p>
+          <button onclick="location.reload()" style="padding: 10px 20px; cursor:pointer;">Atualizar Status</button>
+        </body>
+      </html>
+    `);
   }
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Servidor HTTP escutando na porta ${PORT}`);
+app.get('/', (req, res) => {
+  res.send(`WhatsApp bot status: ${statusMessage}. Visit /qr to authenticate.`);
+});
+
+app.get('/status', (req, res) => {
+  const connected = !!(client && client.info && client.info.pushname);
+  res.json({ 
+    connected, 
+    status: statusMessage,
+    user: connected ? client.info.pushname : null 
+  });
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor de monitorização rodando na porta ${PORT}`);
 });
 
 // CONFIGURAÇÃO DO CLIENTE
@@ -64,6 +89,7 @@ const client = new Client({
 // Evento de geração do QR Code
 client.on("qr", (qr) => {
   lastQr = qr; // Armazena o QR Code atual para exibir na rota /qr
+  statusMessage = "Aguardando escaneamento do QR Code";
   
   // Log informativo
   const timestamp = new Date().toLocaleTimeString("pt-BR");
@@ -78,22 +104,26 @@ client.on("qr", (qr) => {
 
 // Cliente autenticado
 client.on("authenticated", () => {
+  statusMessage = "Autenticado - aguardando ready";
   console.log("✅ Autenticado com sucesso!");
 });
 
 // WhatsApp Conectado
 client.on("ready", () => {
   lastQr = null; // Limpa o QR após conexão
+  statusMessage = "Conectado e pronto";
   console.log("✅ Tudo certo! WhatsApp conectado.");
 });
 
 // Desconexão
 client.on("disconnected", (reason) => {
+  statusMessage = `Desconectado: ${reason}`;
   console.log("⚠️ Desconectado:", reason);
 });
 
 // Erro
 client.on("error", (err) => {
+  statusMessage = `Erro: ${err.message}`;
   console.error("❌ Erro:", err.message);
 });
 
@@ -106,8 +136,9 @@ console.log("\n🚀 INICIANDO BOT WHATSAPP...\n");
 console.log("[INFO] Aguardando conexão com WhatsApp...");
 console.log("[INFO] Quando o QR Code for gerado, ele será exibido abaixo:\n");
 
-// Iniciar cliente (não espera, deixa os listeners capturarem os eventos)
+// Inicializar o serviço do WhatsApp
 client.initialize().catch((err) => {
+  statusMessage = `Erro ao inicializar: ${err.message}`;
   console.error("❌ Erro ao inicializar:", err.message);
 });
 
