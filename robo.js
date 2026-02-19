@@ -64,8 +64,16 @@ const client = new Client({
 // Evento de geração do QR Code
 client.on("qr", (qr) => {
   lastQr = qr; // Armazena o QR Code atual para exibir na rota /qr
-  console.log("📲 QR Code gerado. Acesse a rota /qr no navegador para escaneá-lo.");
+  
+  // Log informativo
+  const timestamp = new Date().toLocaleTimeString("pt-BR");
+  console.log(`\n[${timestamp}] 📲 QR CODE GERADO\n`);
+  
+  // Gera QR Code no terminal
   qrcode.generate(qr, { small: true });
+  
+  // Log adicional
+  console.log(`\n📋 Acesse também: https://whatsapp-bot-juizado-2.onrender.com/qr\n`);
 });
 
 // Cliente autenticado
@@ -95,6 +103,8 @@ client.on("error", (err) => {
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
 console.log("\n🚀 INICIANDO BOT WHATSAPP...\n");
+console.log("[INFO] Aguardando conexão com WhatsApp...");
+console.log("[INFO] Quando o QR Code for gerado, ele será exibido abaixo:\n");
 
 // Iniciar cliente (não espera, deixa os listeners capturarem os eventos)
 client.initialize().catch((err) => {
