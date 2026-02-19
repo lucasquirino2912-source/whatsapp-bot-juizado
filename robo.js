@@ -151,61 +151,97 @@ const logWithFlush = (msg) => {
   process.stdout.write("");
 };
 
+// Catch ALL uncaught exceptions
+process.on("uncaughtException", (err) => {
+  logWithFlush("❌ [UNCAUGHT EXCEPTION] " + err.message);
+  logWithFlush(err.stack);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  logWithFlush("❌ [UNHANDLED REJECTION] " + String(reason));
+});
+
 // Registra listeners ANTES de initialize
 logWithFlush("[LOG] Registrando listeners de eventos...");
+
+// QR Code listener (pode ser disparado antes de initialize resolver)
+client.on("qr", (qr) => {
+  logWithFlush("[EVENT] ⚡⚡⚡ QR CODE RECEBIDO! ⚡⚡⚡");
+  logWithFlush(qr);
+});
 
 // Universal listener para debug - log IMEDIATO de qualquer evento
 client.on("all", (event, ...args) => {
   const timestamp = new Date().toISOString().split("T")[1].split(".")[0];
   const arg0Str = args.length > 0 ? JSON.stringify(args[0]).substring(0, 60) : "";
-  logWithFlush(`[${timestamp}] [EVENT] ${event} ${arg0Str ? "→ " + arg0Str : ""}`);
+  logWithFlush(`[${timestamp}] [EVENT] ${event}`);
+  if (arg0Str) logWithFlush(`          → ${arg0Str}`);
 });
 
 logWithFlush("[LOG] ✅ Listeners registrados\n");
 
-// Timeout para log de debug IMEDIATO com flush
+// Heartbeat para verificar se o processo está vivo
+const heartbeat = setInterval(() => {
+  const mem = process.memoryUsage();
+  logWithFlush(`[HEARTBEAT] Memória: ${Math.round(mem.heapUsed / 1024 / 1024)}MB / ${Math.round(mem.heapTotal / 1024 / 1024)}MB`);
+}, 15000);
+
 let initialized = false;
+
+// Timeout para log de debug IMEDIATO com flush
 setTimeout(() => {
   if (!initialized) {
-    logWithFlush("[DEBUG] ⏱️ 10 SEGUNDOS - Cliente ainda inicializando");
+    logWithFlush("[DEBUG] ⏱️ 10 SEGUNDOS - Cliente ainda inicializando ou travado");
   }
 }, 10000);
 
 setTimeout(() => {
   if (!initialized) {
-    logWithFlush("[DEBUG] ⏱️ 30 SEGUNDOS - Cliente AINDA inicializando");
-    logWithFlush("[DEBUG] Se está aqui, pode ser: WebSocket hang, Puppeteer browser stuck, ou sessão travada");
+    logWithFlush("[DEBUG] ⏱️ 30 SEGUNDOS - Cliente MUITO LENTO ou TRAVADO");
   }
 }, 30000);
 
 setTimeout(() => {
   if (!initialized) {
-    logWithFlush("[DEBUG] ⏱️ 60 SEGUNDOS - TIMEOUT CRÍTICO - Processo pode estar hung");
+    logWithFlush("[DEBUG] ⏱️ 60 SEGUNDOS - TIMEOUT CRÍTICO - Matando processo");
+    clearInterval(heartbeat);
+    process.exit(1);
   }
 }, 60000);
 
-// Wrapper com timeout de segurança
-const initPromise = Promise.race([
-  client.initialize(),
-  new Promise((_, reject) => 
-    setTimeout(() => reject(new Error("initialize() timeout após 90 segundos")), 90000)
-  )
-]);
+// Wrapper com safety timeout
+logWithFlush("[LOG] [PRÉ-INIT] Sobre iniciar client.initialize()...");
+
+const initTimeout = setTimeout(() => {
+  if (!initialized) {
+    logWithFlush("[ERROR] ❌ client.initialize() não respondeu em 90 segundos - TIMEOUT");
+    clearInterval(heartbeat);
+    process.exit(1);
+  }
+}, 90000);
 
 logWithFlush("[LOG] Chamando client.initialize()...");
-initPromise
+
+client.initialize()
   .then(() => {
     initialized = true;
-    logWithFlush("[LOG] ✅✅✅ client.initialize() RESOLVIDO COM SUCESSO! ✅✅✅");
+    clearTimeout(initTimeout);
+    logWithFlush("[LOG] ✅✅✅ client.initialize() CONCLUÍDO COM SUCESSO ✅✅✅");
   })
   .catch((err) => {
     initialized = true;
-    logWithFlush("❌❌❌ client.initialize() FALHOU ❌❌❌");
-    logWithFlush("Erro: " + (err.message || String(err)));
+    clearTimeout(initTimeout);
+    logWithFlush("[ERROR] ❌❌❌ client.initialize() FALHOU ❌❌❌");
+    logWithFlush("[ERROR] Mensagem: " + (err.message || String(err)));
     if (err.stack) {
-      logWithFlush("Stack: " + err.stack.split("\n").slice(0, 5).join("\n"));
+      const stackLines = err.stack.split("\n").slice(0, 10);
+      stackLines.forEach(line => logWithFlush("[ERROR] " + line));
     }
+    clearInterval(heartbeat);
+    process.exit(1);
   });
+
+logWithFlush("[LOG] ✅ Chamada initialize() enviada para processamento");
 
 // =====================================
 // FUNÇÃO DE DELAY
