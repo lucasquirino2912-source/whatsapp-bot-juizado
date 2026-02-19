@@ -2,6 +2,20 @@
 // =====================================
 const qrcode = require("qrcode-terminal");
 const { Client, MessageMedia, LocalAuth } = require("whatsapp-web.js");
+const express = require("express");
+
+// CONFIGURAÇÃO DO SERVIDOR
+// =====================================
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get("/", (req, res) => {
+  res.send("WhatsApp Bot Ativo");
+});
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Servidor HTTP escutando na porta ${PORT}`);
+});
 
 // CONFIGURAÇÃO DO CLIENTE
 // =====================================
