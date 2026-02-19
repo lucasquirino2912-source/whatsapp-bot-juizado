@@ -4,6 +4,8 @@ const qrcode = require("qrcode-terminal");
 const qrcodeImage = require("qrcode");
 const { Client, MessageMedia, LocalAuth } = require("whatsapp-web.js");
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
 
 // CONFIGURAÇÃO DO SERVIDOR
 // =====================================
@@ -113,6 +115,7 @@ client.on("ready", () => {
   lastQr = null; // Limpa o QR após conexão
   statusMessage = "Conectado e pronto";
   console.log("✅ Tudo certo! WhatsApp conectado.");
+  console.log("✅ Bot pronto para receber mensagens!");
 });
 
 // Desconexão
@@ -133,6 +136,46 @@ client.on("error", (err) => {
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
 console.log("\n🚀 INICIANDO BOT WHATSAPP...\n");
+console.log("[INFO] Limpando sessões anteriores...");
+
+// Função para limpar sessões anteriores
+const limparSessaoAnterior = () => {
+  try {
+    // Destroi o cliente anterior se existir
+    if (client && typeof client.destroy === 'function') {
+      client.destroy();
+      console.log("[INFO] Cliente anterior destruído");
+    }
+  } catch (err) {
+    console.log("[INFO] Nenhum cliente anterior para destruir");
+  }
+
+  try {
+    // Remove a pasta de autenticação
+    const authDir = path.join(__dirname, ".wwebjs_auth");
+    if (fs.existsSync(authDir)) {
+      fs.rmSync(authDir, { recursive: true, force: true });
+      console.log("[INFO] ✅ Pasta de autenticação anterior removida");
+    }
+  } catch (err) {
+    console.log("[WARN] Erro ao limpar pasta de autenticação:", err.message);
+  }
+
+  try {
+    // Remove o cache também
+    const cacheDir = path.join(__dirname, ".wwebjs_cache");
+    if (fs.existsSync(cacheDir)) {
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+      console.log("[INFO] ✅ Cache anterior removido");
+    }
+  } catch (err) {
+    console.log("[WARN] Erro ao limpar cache:", err.message);
+  }
+};
+
+// Limpar antes de inicializar
+limparSessaoAnterior();
+
 console.log("[INFO] Aguardando conexão com WhatsApp...");
 console.log("[INFO] Quando o QR Code for gerado, ele será exibido abaixo:\n");
 
