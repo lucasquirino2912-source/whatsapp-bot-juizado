@@ -3,6 +3,7 @@ FROM node:18-bullseye-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV NODE_ENV=production
 
 # Install Chromium and required libraries for Puppeteer
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -50,6 +50,7 @@ const client = new Client({
     headless: true,
     args: puppeteerArgs,
     executablePath: chromiumPath,
+    skipBrowserDownload: process.env.NODE_ENV === "production", // Não tenta baixar em produção
   },
   webVersion: "2.2412.54",
 });
