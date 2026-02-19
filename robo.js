@@ -92,7 +92,10 @@ app.listen(PORT, '0.0.0.0', () => {
 // =====================================
 // INICIALIZA
 // =====================================
-client.initialize();
+console.log('Inicializando WhatsApp Web client...');
+client.initialize().catch((err) => {
+  console.error('Erro ao inicializar o WhatsApp Web:', err);
+});
 
 // =====================================
 // FUNÇÃO DE DELAY
