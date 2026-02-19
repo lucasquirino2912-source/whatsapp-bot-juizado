@@ -150,6 +150,11 @@ setTimeout(() => {
   console.log("[DEBUG] ⏱️ Cliente ainda inicializando após 10 segundos...");
 }, 10000);
 
+setTimeout(() => {
+  console.log("[DEBUG] ⏱️ Cliente AINDA inicializando após 30 segundos...");
+  console.log("[DEBUG] Se o QR Code não apareceu, pode ser um problema de WebSocket ou sessão persistida");
+}, 30000);
+
 client.initialize().catch((err) => {
   console.error("❌ ERRO CRÍTICO ao inicializar o WhatsApp Web:", err.message || err);
   console.error(err.stack);
@@ -157,6 +162,13 @@ client.initialize().catch((err) => {
 
 // Log após initialize ser chamado
 console.log("[LOG] client.initialize() foi chamado com sucesso\n");
+
+// Listener para qualquer evento emitido pelo cliente (para debug)
+client.on("all", (event, ...args) => {
+  if (event !== "message") { // ignora message events para não poluir logs
+    console.log(`[EVENT] ${event}:`, args.length > 0 ? args[0] : "");
+  }
+});
 
 // =====================================
 // FUNÇÃO DE DELAY
