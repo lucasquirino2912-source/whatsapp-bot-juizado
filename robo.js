@@ -209,39 +209,31 @@ console.log("[LOG] Listeners registrados ✅\n");
 const initializeBot = async () => {
   console.log("[INIT] Iniciando sequência de conexão...");
   
-  // PASSO 1: Testar Puppeteer
-  console.log("[INIT-1] Testando Puppeteer...");
+  // PASSO 1: Inicializar cliente WhatsApp (sem teste prévio)
+  console.log("[INIT-1] Inicializando cliente WhatsApp Web...");
+  console.log("[INIT-1] Isso pode levar 30-120 segundos...");
+  
   try {
-    const testBrowser = await puppeteer.launch({
-      headless: true,
-      args: puppeteerArgs,
-      executablePath: chromiumPath,
-      timeout: 30000,
+    const initPromise = client.initialize();
+    
+    // Timeout de 120 segundos para initialize
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        console.log("[INIT-1] ⏱️  Aguardando QR Code (pode levar mais tempo)...");
+        reject(new Error("Initialize timeout (120s)"));
+      }, 120000);
     });
     
-    const version = await testBrowser.version();
-    console.log(`[INIT-1] ✅ Puppeteer OK - Versão: ${version}`);
-    await testBrowser.close();
+    await Promise.race([initPromise, timeoutPromise]);
+    console.log("[INIT-1] ✅ Cliente inicializado com sucesso");
   } catch (err) {
-    console.log("[INIT-1] ❌ ERRO - Puppeteer não consegue lançar:");
+    console.log("[INIT-1] ❌ ERRO na inicialização:");
     console.log(`        ${err.message}`);
-    console.log("[INIT] Encerrando aplicação");
-    process.exit(1);
-  }
-
-  // PASSO 2: Inicializar cliente WhatsApp
-  console.log("[INIT-2] Inicializando cliente WhatsApp Web...");
-  try {
-    await client.initialize();
-    console.log("[INIT-2] ✅ Cliente inicializado com sucesso");
-  } catch (err) {
-    console.log("[INIT-2] ❌ ERRO na inicialização:");
-    console.log(`        ${err.message}`);
-    console.log("[INIT] Tentando reiniciar em 10 segundos...");
+    console.log("[INIT] Reiniciando em 20 segundos...");
     setTimeout(() => {
       console.log("[INIT] Reeniciando...");
       initializeBot();
-    }, 10000);
+    }, 20000);
   }
 };
 
