@@ -66,6 +66,30 @@ client.on("disconnected", (reason) => {
 });
 
 // =====================================
+// INICIALIZAÇÃO DO SERVIDOR DE MONITORAMENTO (Express)
+// =====================================
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('WhatsApp bot running');
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', port: PORT });
+});
+
+app.get('/status', (req, res) => {
+  const connected = client && client.info && client.info.pushname ? true : false;
+  res.json({ connected, info: client && client.info ? client.info : null });
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor de monitoramento rodando na porta ${PORT}`);
+});
+
+// =====================================
 // INICIALIZA
 // =====================================
 client.initialize();
