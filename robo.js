@@ -5,6 +5,7 @@ const qrcodeImage = require("qrcode");
 const fs = require("fs");
 const path = require("path");
 const { Client, MessageMedia, LocalAuth } = require("whatsapp-web.js");
+const puppeteer = require("puppeteer");
 
 // CONFIGURAÇÃO DO CLIENTE
 // =====================================
@@ -211,7 +212,6 @@ const initializeBot = async () => {
   // PASSO 1: Testar Puppeteer
   console.log("[INIT-1] Testando Puppeteer...");
   try {
-    const { puppeteer } = require("whatsapp-web.js");
     const testBrowser = await puppeteer.launch({
       headless: true,
       args: puppeteerArgs,
