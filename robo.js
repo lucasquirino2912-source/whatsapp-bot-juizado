@@ -28,7 +28,7 @@ const client = new Client({
   puppeteer: {
     headless: true,
     args: puppeteerArgs,
-    executablePath: process.env.NODE_ENV === "production" ? "/usr/bin/chromium-browser" : undefined,
+    executablePath: process.env.NODE_ENV === "production" ? "/usr/bin/chromium" : undefined,
   },
   webVersion: "2.2412.54",
 });

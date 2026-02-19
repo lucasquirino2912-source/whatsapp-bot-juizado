@@ -1,13 +1,30 @@
-# Use Node.js image
-FROM node:18
+# Use a Debian-based Node image (better apt support)
+FROM node:18-bullseye-slim
 
-# Install Chrome/Chromium dependencies for Puppeteer/WhatsApp Web
-RUN apt-get update && apt-get install -y \
-    chromium-browser \
-    ca-certificates \
-    fontconfig \
-    fonts-liberation \
-    && rm -rf /var/lib/apt/lists/*
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
+# Install Chromium and required libraries for Puppeteer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  chromium \
+  ca-certificates \
+  fontconfig \
+  fonts-liberation \
+  libnss3 \
+  libatk1.0-0 \
+  libatk-bridge2.0-0 \
+  libcups2 \
+  libxcomposite1 \
+  libxdamage1 \
+  libxrandr2 \
+  libgbm1 \
+  libasound2 \
+  libxss1 \
+  libxtst6 \
+  libx11-6 \
+  libx11-xcb1 \
+  libxcb1 \
+  && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
