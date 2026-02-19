@@ -1,0 +1,172 @@
+// IMPORTAÇÕES
+// =====================================
+const qrcode = require("qrcode-terminal");
+const qrcodeImage = require("qrcode");
+const fs = require("fs");
+const path = require("path");
+const { Client, MessageMedia, LocalAuth } = require("whatsapp-web.js");
+
+// =====================================
+// CONFIGURAÇÃO DO CLIENTE
+// =====================================
+const client = new Client({
+  authStrategy: new LocalAuth(),
+  puppeteer: {
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-web-resources",
+      "--disable-features=IsolateOrigins,site-per-process",
+    ],
+  },
+  webVersion: "2.2412.54",
+});
+
+// =====================================
+// QR CODE
+// =====================================
+client.on("qr", (qr) => {
+  console.log("📲 Escaneie o QR Code abaixo:");
+  qrcode.generate(qr, { small: true });
+  
+  // Gerar e salvar QR Code como imagem PNG
+  const qrPath = path.join(__dirname, "qrcode.png");
+  qrcodeImage.toFile(qrPath, qr, { width: 300 }, (err) => {
+    if (err) {
+      console.error("❌ Erro ao gerar QR Code:", err);
+    } else {
+      console.log(`✅ QR Code salvo em: ${qrPath}`);
+    }
+  });
+});
+
+// =====================================
+// WHATSAPP CONECTADO
+// =====================================
+client.on("ready", () => {
+  console.log("✅ Tudo certo! WhatsApp conectado.");
+});
+
+// =====================================
+// DESCONEXÃO
+// =====================================
+client.on("disconnected", (reason) => {
+  console.log("⚠️ Desconectado:", reason);
+});
+
+// =====================================
+// INICIALIZA
+// =====================================
+client.initialize();
+
+// =====================================
+// FUNÇÃO DE DELAY
+// =====================================
+const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+
+// =====================================
+// FUNIL DE MENSAGENS (SOMENTE PRIVADO)
+// =====================================
+client.on("message", async (msg) => {
+  try {
+    // ❌ IGNORA QUALQUER COISA QUE NÃO SEJA CONVERSA PRIVADA
+    if (!msg.from || msg.from.endsWith("@g.us")) return;
+
+    const chat = await msg.getChat();
+    if (chat.isGroup) return; // blindagem extra
+
+    // =====================================
+    // CONTROLE DE HORÁRIO (08:00 às 14:00)
+    // =====================================
+    const agora = new Date();
+    const horaAtual = agora.getHours();
+    const diaSemana = agora.getDay(); // 0 = Domingo, 1 = Segunda, ..., 6 = Sábado
+
+    // Verifica se é final de semana (Sábado ou Domingo)
+    const ehFinalDeSemana = (diaSemana === 0 || diaSemana === 6);
+    
+    // Verifica se está fora do horário (antes das 8h ou a partir das 14h)
+    const foraDoHorario = (horaAtual < 8 || horaAtual >= 14);
+
+    if (ehFinalDeSemana || foraDoHorario) {
+      // O bot permanece em silêncio fora do horário comercial
+      return;
+    }
+
+    const texto = msg.body ? msg.body.trim().toLowerCase() : "";
+
+    // Texto padrão para retorno ao menu
+    const voltarMenu = "\n\nDigite *MENU* a qualquer momento para voltar às opções iniciais.";
+
+    // Função de auxílio para delay
+    const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+
+    // Função de simulação de digitação
+    const typing = async (tempo = 2000) => {
+      await chat.sendStateTyping();
+      await delay(tempo);
+    };
+
+    // =====================================
+    // MENSAGEM INICIAL E MENU
+    // =====================================
+    if (/^(menu|oi|olá|ola|bom dia|boa tarde|boa noite)$/i.test(texto)) {
+      await typing(3000);
+
+      const hora = new Date().getHours();
+      let saudacao = "Olá";
+
+      if (hora >= 5 && hora < 12) saudacao = "Bom dia";
+      else if (hora >= 12 && hora < 18) saudacao = "Boa tarde";
+      else saudacao = "Boa noite";
+
+      const menuMsg = 
+        `${saudacao}! 👋\n\n` +
+        `Este é o atendimento automático do *4º Juizado Especial da Fazenda Pública*.\n\n` +
+        `Como podemos ajudar hoje? Digite o número da opção desejada:\n\n` +
+        `1️⃣ - Consultar andamento processual\n` +
+        `2️⃣ - Orientações sobre audiências\n` +
+        `3️⃣ - Consultar andamento da execução/alvará\n` +
+        `4️⃣ - Falar com um atendente\n\n` +
+        `_Por favor, responda apenas com o número._`;
+
+      await client.sendMessage(msg.from, menuMsg);
+      return;
+    }
+
+    // =====================================
+    // TRATAMENTO DAS RESPOSTAS DO MENU
+    // =====================================
+    switch (texto) {
+      case "1":
+        await typing();
+        await client.sendMessage(msg.from, "🔍 Para consultar o andamento, você pode acessar o portal do PJe ou informar seu nome e o número do processo aqui (bem como breve relato do seu pedido ou dúvida) para que possamos verificar assim que possível." + voltarMenu);
+        break;
+
+      case "2":
+        await typing();
+        await client.sendMessage(msg.from, "⚖️ As audiências são realizadas preferencialmente de forma virtual. Caso tenha uma audiência agendada, o link será disponibilizado nos autos." + voltarMenu);
+        break;
+
+      case "3":
+        await typing();
+        await client.sendMessage(msg.from, "💰 Para consultar a expedição de alvarás ou o status da execução, informe o número do processo. Ressaltamos que se o processo tiver pendências acerca do envio do ofício requisitório para pagamento voluntário, não há como solucionarmos a questão, devendo a parte entrar em contato com a SERPREC (precatorios@tjrn.jus.br ou 3673-8350)." + voltarMenu);
+        break;
+
+      case "4":
+        await typing();
+        await client.sendMessage(msg.from, "⏳ Entendido. Encaminhei sua solicitação para um de nossos servidores. O horário de atendimento humano é de segunda a sexta, das 08h às 14h. Aguarde um momento." + voltarMenu);
+        break;
+
+      default:
+        // Caso o usuário digite algo fora do menu, o bot ignora
+        break;
+    }
+
+  } catch (error) {
+    console.error("❌ Erro no processamento da mensagem:", error);
+  }
+});

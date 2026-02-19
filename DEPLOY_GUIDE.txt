@@ -1,0 +1,127 @@
+🚀 GUIA DE DEPLOY DO BOT PARA SERVIDOR
+=====================================
+
+Seu bot WhatsApp está pronto para rodar em um servidor! 
+
+📋 O QUE FOI CONFIGURADO:
+========================
+
+✅ Express.js integrado com rotas de monitoramento
+✅ Arquivo ecosystem.config.js para PM2 (gerenciador de processos)
+✅ Variáveis de ambiente (.env)
+✅ Scripts de inicialização automática (start.sh e start.bat)
+✅ Documentação completa (README.md)
+✅ Health check e status endpoints
+
+🔧 COMO USAR:
+=============
+
+LOCAL (Windows):
+1. Execute: .\start.bat
+2. Ou simplesmente: npm start
+
+LOCAL (Linux/Mac):
+1. Execute: chmod +x start.sh
+2. Depois: ./start.sh
+
+COM PM2 (Recomendado para Servidores):
+1. pm2 start ecosystem.config.js
+2. pm2 logs whatsapp-bot (para ver logs)
+3. pm2 restart whatsapp-bot (para reiniciar)
+
+📞 ROTAS DISPONÍVEIS:
+=====================
+
+GET http://seu-servidor:3000/
+  └─ Informações gerais do bot
+
+GET http://seu-servidor:3000/health
+  └─ Status de saúde do bot
+
+GET http://seu-servidor:3000/status
+  └─ Status atual da conexão WhatsApp
+
+🌐 DEPLOY EM SERVIDOR LINUX/UBUNTU:
+====================================
+
+1. Copiar arquivos para o servidor:
+   scp -r ./* usuario@seu-servidor:/home/seu-usuario/whatsapp-bot/
+
+2. Conectar ao servidor:
+   ssh usuario@seu-servidor
+
+3. Instalar dependências:
+   cd /home/seu-usuario/whatsapp-bot/
+   npm install
+
+4. Iniciar com PM2:
+   pm2 start ecosystem.config.js
+
+5. Configurar startup automático:
+   pm2 startup
+   pm2 save
+
+6. (Opcional) Usar proxy reverso (nginx):
+   - Configure nginx para redirecionar porta 80 para 3000
+
+🔐 SEGURANÇA:
+=============
+
+1. Use variáveis de ambiente (.env) para sensibilidades
+2. Configure firewall para apenas portas necessárias
+3. Use HTTPS em produção (com nginx/Apache)
+4. Monitore os logs regularmente
+
+📊 MONITORAMENTO:
+=================
+
+PM2 oferece painel web:
+  pm2 web
+  Acesse: http://localhost:9615
+
+Ou use:
+  pm2 status
+  pm2 logs
+  pm2 monit
+
+🆘 TROUBLESHOOTING:
+===================
+
+Bot desconecta?
+- Aumente max_memory_restart em ecosystem.config.js
+- Reinicie o bot: pm2 restart whatsapp-bot
+
+Porta 3000 já está em uso?
+- Altere PORT em .env ou ecosystem.config.js
+
+QR Code não aparece?
+- Limpe .wwebjs_auth
+- Reinicie o bot
+
+📂 ARQUIVOS CRIADOS/ALTERADOS:
+===============================
+
+✓ robo.js - Bot principal (atualizado com Express)
+✓ package.json - Dependências (atualizado)
+✓ ecosystem.config.js - Configuração PM2
+✓ .env - Variáveis de ambiente
+✓ README.md - Documentação completa
+✓ start.sh - Script inicialização Linux
+✓ start.bat - Script inicialização Windows
+✓ qrcode.png - QR Code gerado
+
+🎯 PRÓXIMOS PASSOS:
+===================
+
+1. Escanear o QR Code (execute: npm start)
+2. Testar bot localmente enviando mensagens
+3. Fazer deploy em servidor
+4. Configurar monitoramento (PM2 web ou similar)
+5. Adicionar HTTPS se acessar externamente
+
+📝 DÚVIDAS?
+===========
+Consulte README.md para documentação mais detalhada!
+
+Versão: 1.0.0
+Data: 2026-02-18

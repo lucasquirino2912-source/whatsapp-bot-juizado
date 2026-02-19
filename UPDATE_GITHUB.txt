@@ -1,0 +1,26 @@
+📤 COMANDO PARA ATUALIZAR NO GITHUB
+====================================
+
+Copie e execute no Git Bash:
+
+# Entrar na pasta
+cd C:/Users/drare/Downloads/Chatbot/drive-download-20260218T165356Z-1-001
+
+# Adicionar alterações do robo.js
+git add robo.js
+
+# Commit com descrição
+git commit -m "Update: reorganized robo.js code structure"
+
+# Push para GitHub
+git push origin main
+
+====================================
+
+OU, se quiser fazer push de TODAS as mudanças recentes:
+
+git add .
+git commit -m "Update: bot code improvements and fixes"
+git push origin main
+
+Pronto! GitHub atualizado! ✅

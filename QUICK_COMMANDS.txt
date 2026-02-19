@@ -1,0 +1,224 @@
+⚡ COMANDOS RÁPIDOS - GITHUB PUSH
+===================================
+
+COPIE E COLE DIRETO NO TERMINAL!
+
+📋 PRIMEIRA VEZ (Setup GitHub):
+================================
+
+1. Instale Git:
+   → https://git-scm.com/download/win
+   → Execute o .exe
+
+2. Configure Git (primeira vez):
+   git config --global user.name "Seu Nome Completo"
+   git config --global user.email "seu.email@github.com"
+
+3. Crie repositório no GitHub:
+   → Acesse: https://github.com/new
+   → Nome: whatsapp-bot-juizado
+   → Descrição: Bot WhatsApp para Juizado Especial
+   → Public
+   → NÃO marque "Initialize with README"
+   → Clique: "Create repository"
+
+4. Copie a URL do repositório (aquela que começa com https://github.com/...)
+
+🚀 FAZER PUSH (COPIE TUDO JUNTO):
+===================================
+
+No terminal, dentro da pasta do projeto:
+
+git init
+git add .
+git commit -m "Initial commit: WhatsApp bot with PM2 and Express"
+git branch -M main
+git remote add origin https://github.com/SEU-USUARIO/whatsapp-bot-juizado.git
+git push -u origin main
+
+⚠️ IMPORTANTE: Substitua "SEU-USUARIO" pelo seu username do GitHub!
+
+Exemplo completo:
+git init
+git add .
+git commit -m "Initial commit: WhatsApp bot with PM2 and Express"
+git branch -M main
+git remote add origin https://github.com/joaosilva/whatsapp-bot-juizado.git
+git push -u origin main
+
+✨ PRONTO! Seu repositório está no GitHub!
+
+📤 FAZER ATUALIZAÇÕES (depois):
+=================================
+
+Sempre que fizer mudanças:
+
+git add .
+git commit -m "Descrição clara do que mudou"
+git push
+
+Exemplo:
+git add .
+git commit -m "Add: nova opção de menu no bot"
+git push
+
+📥 CLONAR PROJETO:
+==================
+
+Para clonar em outro local:
+
+git clone https://github.com/seu-usuario/whatsapp-bot-juizado.git
+cd whatsapp-bot-juizado
+npm install
+npm start
+
+🔍 VERIFICAR STATUS:
+====================
+
+Ver mudanças pendentes:
+git status
+
+Ver histórico de commits:
+git log --oneline
+
+Ver branches:
+git branch
+
+Ver remotes:
+git remote -v
+
+🌿 TRABALHAR COM BRANCHES:
+===========================
+
+Criar nova branch:
+git checkout -b feature/nome-da-feature
+
+Voltar para main:
+git checkout main
+
+Mesclar branch:
+git merge feature/nome-da-feature
+
+Deletar branch:
+git branch -d feature/nome-da-feature
+
+🔄 SINCRONIZAR:
+================
+
+Baixar mudanças remotas:
+git pull origin main
+
+Atualizar antes de fazer push:
+git pull
+git push
+
+💾 DESFAZER MUDANÇAS:
+====================
+
+Ver último commit:
+git log -1
+
+Desfazer último commit (mas manter arquivos):
+git reset --soft HEAD~1
+
+Desfazer tudo (cuidado!):
+git reset --hard HEAD~1
+
+🆘 ERROS COMUNS (Soluções Rápidas):
+====================================
+
+"fatal: not a git repository"
+Solução: git init
+
+"fatal: could not read Username"
+Solução: 
+git config --global user.name "Seu Nome"
+git config --global user.email "seu@email.com"
+
+"Permission denied (publickey)"
+Solução: Use HTTPS em vez de SSH
+git remote set-url origin https://github.com/usuario/repo.git
+
+"fatal: refusing to merge unrelated histories"
+Solução:
+git pull origin main --allow-unrelated-histories
+
+"Repository not found"
+Solução: Verifique a URL
+git remote -v
+git remote set-url origin <URL-CORRETA>
+
+"Please commit your changes before merging"
+Solução:
+git add .
+git commit -m "Work in progress"
+
+📝 MODELO DE COMMIT:
+====================
+
+Bom commit:
+git commit -m "feat: adiciona novo menu ao bot"
+
+Tipo de commits:
+- feat: nova funcionalidade
+- fix: correção de bug
+- docs: documentação
+- style: formatação
+- refactor: reorganização de código
+- test: testes
+- chore: atualizações de dependências
+
+🎯 CHECKLIST ANTES DE PUSH:
+===========================
+
+□ Git está instalado? (git --version)
+□ Repositório criado no GitHub?
+□ .env NOT está em .gitignore? (não vai pro GitHub)
+□ node_modules está em .gitignore? (não vai)
+□ .wwebjs_auth está em .gitignore? (não vai)
+□ Rode git add .?
+□ Rode git commit com mensagem descritiva?
+□ URL remote está correta? (git remote -v)
+□ Fazendo primeira vez? (git push -u origin main)
+□ Atualizações depois? (git push)
+
+📊 DEPOIS DO PRIMEIRO PUSH:
+============================
+
+Verificar no navegador:
+→ https://github.com/seu-usuario/whatsapp-bot-juizado
+
+Você deve ver:
+✓ Arquivo README.md renderizado
+✓ Todos os arquivos (menos os em .gitignore)
+✓ Histórico de commits
+✓ Green checkmark se tudo ok
+
+⚡ ALIASES (Opcional):
+======================
+
+Abreviar comandos:
+
+git config --global alias.st status
+git config --global alias.co checkout
+git config --global alias.br branch
+git config --global alias.ci commit
+git config --global alias.unstage 'reset HEAD --'
+git config --global alias.last 'log -1 HEAD'
+git config --global alias.visual 'log --oneline --decorate'
+
+Depois:
+git st (em vez de git status)
+git co (em vez de git checkout)
+
+🚀 VOCÊ ESTÁ PRONTO!
+====================
+
+Siga os passos acima e seu bot estará no GitHub!
+
+Copie os comandos do item "FAZER PUSH" e execute!
+
+Qualquer dúvida, consulte:
+- GITHUB_SETUP.txt
+- GITHUB_CHECKLIST.txt
+- https://docs.github.com/pt

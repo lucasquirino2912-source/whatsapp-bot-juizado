@@ -1,0 +1,162 @@
+🚀 DEPLOY RENDER - PROCESSO COMPLETO (LIMPO)
+==============================================
+
+PASSO 1: FAZER PUSH PARA GITHUB
+================================
+
+Abra Git Bash e execute:
+
+cd C:/Users/drare/Downloads/Chatbot/drive-download-20260218T165356Z-1-001
+
+git add .
+git commit -m "Deploy ready: complete bot with Docker, PM2 and Express"
+git push origin main
+
+Aguarde terminar.
+
+PASSO 2: DELETAR APP ANTERIOR NO RENDER
+=========================================
+
+1. Acesse: https://render.com/dashboard
+2. Se tiver uma app anterior, clique nela
+3. Vá em "Settings" (na parte de cima)
+4. Role para o final e clique "Delete Service"
+5. Confirme (digitar nome da app)
+6. Aguarde deletar
+
+PASSO 3: CRIAR NOVO WEB SERVICE
+================================
+
+1. Clique em "New +" (botão verde no topo)
+2. Selecione "Web Service"
+3. Selecione seu repositório GitHub (whatsapp-bot-juizado)
+4. Clique "Connect"
+
+PASSO 4: CONFIGURAR A APP
+==========================
+
+Preencha os campos:
+
+Name: whatsapp-bot-juizado
+Environment: Node (mude para Docker no próximo passo!)
+Build Command: (deixe em branco)
+Start Command: (deixe em branco)
+Plan: Free
+
+⚠️ IMPORTANTE: 
+No campo "Runtime", NÃO selecione "Node.js"
+Você precisa trocar DEPOIS para Docker!
+
+PASSO 5: TROCAR PARA DOCKER
+============================
+
+Antes de clicar "Create", procure por:
+"Runtime" ou "Environment"
+
+Se disser "Node.js", clique nele e mude para "Docker"
+(Render vai detectar Dockerfile automaticamente)
+
+Se não conseguir mudar:
+→ Clique "Create Web Service"
+→ Depois, em Settings, mude para Docker
+
+PASSO 6: DEPLOY
+===============
+
+Clique "Create Web Service"
+
+Render vai:
+1. Detectar Dockerfile
+2. Fazer build da imagem Docker
+3. Iniciar container
+4. Bot rodando!
+
+Aguarde 3-5 minutos para build completar.
+
+PASSO 7: VERIFICAR LOGS
+=======================
+
+1. Seu app aparecerá no dashboard
+2. Clique nela
+3. Vá em "Logs"
+4. Procure por:
+   ✅ "Servidor de monitoramento rodando na porta 3000"
+   ✅ "📲 Escaneie o QR Code"
+   ✅ "✅ Tudo certo! WhatsApp conectado"
+
+Se aparecer isso = deployment bem-sucedido!
+
+PASSO 8: OBTER URL
+==================
+
+Seu app estará em:
+https://whatsapp-bot-juizado.onrender.com
+
+Teste:
+https://whatsapp-bot-juizado.onrender.com/health
+
+Se retornar JSON = funcionando! ✅
+
+PASSO 9: CONECTAR WHATSAPP
+===========================
+
+1. Vá nos logs do Render
+2. Procure por "📲 Escaneie o QR Code abaixo"
+3. Você vai ver o QR Code nos logs (ou em imagem)
+4. Escaneie com seu WhatsApp
+5. Bot conectado!
+
+PASSO 10: USAR O BOT
+====================
+
+Abra WhatsApp e envie mensagem privada ao número conectado:
+- Envie: "menu"
+- Bot responde com opções
+- Interaja normalmente!
+
+========================================
+
+CHECKLIST FINAL:
+
+✅ Código foi feito push para GitHub?
+✅ App anterior foi deletada no Render?
+✅ New Web Service foi criado?
+✅ Runtime está como Docker (não Node.js)?
+✅ Dockerfile foi detectado?
+✅ Build completou sem erros?
+✅ Logs mostram "Servidor rodando"?
+✅ Health check responde /health?
+✅ QR Code foi escaneado?
+✅ Bot responde no WhatsApp?
+
+========================================
+
+ERROS COMUNS:
+
+❌ "go.mod file not found"
+→ Certifique-se que Runtime está DOCKER
+→ Delete app e crie nova COM Docker
+
+❌ "Build failed"
+→ Verifique logs
+→ Pode ser que Dockerfile não foi detectado
+→ Mude Runtime para Docker manualmente
+
+❌ "Port already in use"
+→ Render atribui porta automaticamente
+→ Não se preocupe, vai funcionar
+
+❌ "Module not found"
+→ package.json e package-lock.json estão?
+→ Faça git push de novo
+
+========================================
+
+SE TUDO DER CERTO:
+
+Bot rodando 24/7 no Render! 🎉
+Não precisa do seu PC ligado
+Cada git push = novo deploy automático
+WhatsApp conectado e funcionando
+
+Sucesso!

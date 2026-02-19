@@ -1,0 +1,75 @@
+⚡ RENDER.COM - GUIA RÁPIDO
+============================
+
+Seu bot agora tem Dockerfile! Pronto para Render.com
+
+🎯 5 MINUTOS PARA DEPLOY:
+=========================
+
+1. FAZER PUSH (copie e cole):
+
+git add .
+git commit -m "Add: Dockerfile para Render"
+git push
+
+2. ACESSAR RENDER:
+
+Acesse: https://render.com
+Faça login com GitHub
+
+3. CRIAR WEB SERVICE:
+
+New + → Web Service
+Selecione repositório: whatsapp-bot-juizado
+Clique "Connect"
+
+4. CONFIGURAR:
+
+Nome: whatsapp-bot-juizado
+Runtime: Docker
+Plano: Free
+
+5. DEPLOY:
+
+Clique "Create Web Service"
+Aguarde ~2-3 minutos
+Pronto! App rodando!
+
+✅ ACESSAR:
+
+https://whatsapp-bot-juizado.onrender.com/health
+
+📝 LOGS DO QR CODE:
+
+1. Acesse dashboard Render
+2. Clique na app
+3. Vá em "Logs"
+4. Procure por "📲 Escaneie"
+5. Veja o QR Code
+6. Escaneie com celular
+
+🔄 AUTO-DEPLOY:
+
+Cada git push = deploy automático!
+
+git add .
+git commit -m "Update"
+git push
+
+Render faz deploy sozinho!
+
+💡 IMPORTANTE:
+
+A pasta .wwebjs_auth NÃO é salva
+Cada deploy = novo QR Code
+Isso é normal!
+
+Se quiser sessão persistente:
+- Use plano pago
+- Configure cloud storage
+
+📚 MAIS DETALHES:
+
+Leia: RENDER_DEPLOY.txt
+
+🚀 Pronto! Seu bot está na nuvem!

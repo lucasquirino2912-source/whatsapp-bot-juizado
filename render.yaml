@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: whatsapp-bot-juizado
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000

@@ -1,0 +1,148 @@
+📋 CHECKLIST - PREPARAÇÃO PARA GITHUB
+======================================
+
+PROJETO CONFIGURADO:
+====================
+
+✅ Bot WhatsApp funcional com Express
+✅ PM2 configurado para produção
+✅ QR Code gerado como imagem
+✅ Rotas de health check implementadas
+✅ Scripts de inicialização (start.sh / start.bat)
+✅ Variáveis de ambiente configuradas
+✅ .gitignore criado (protege dados sensíveis)
+✅ .env.example criado (referência)
+✅ README.md documentado
+✅ Guias de deployment criados
+✅ Arquivo de contribuição
+✅ Licença MIT adicionada
+
+ANTES DE FAZER PUSH (Checklist):
+=================================
+
+⬜ Verificar se Git está instalado:
+   → Abra terminal
+   → Digite: git --version
+   → Deve mostrar versão
+
+⬜ Criar conta GitHub (se não tiver):
+   → https://github.com/signup
+
+⬜ Configurar Git localmente (primeira vez):
+   git config --global user.name "Seu Nome"
+   git config --global user.email "seu.email@github.com"
+
+⬜ Verificar se arquivos sensíveis não serão enviados:
+   → .env não deve ir (está em .gitignore)
+   → .wwebjs_auth não deve ir (está em .gitignore)
+   → node_modules não deve ir (está em .gitignore)
+
+⬜ Criar novo repositório no GitHub:
+   → Site: https://github.com/new
+   → Nome: whatsapp-bot-juizado
+   → Não marque "Initialize with README"
+   → Copiar URL do repositório
+
+⬜ Executar comandos Git:
+   git init
+   git add .
+   git commit -m "Initial commit: WhatsApp bot"
+   git branch -M main
+   git remote add origin <URL-DO-REPO>
+   git push -u origin main
+
+APÓS FAZER PUSH:
+=================
+
+✅ Acessar repositório no GitHub
+✅ Verificar se todos os arquivos estão lá
+✅ Verificar se node_modules NÃO está lá
+✅ Verificar se .wwebjs_auth NÃO está lá
+✅ Adicionar descrição no repositório
+✅ Adicionar tópicos (topics): whatsapp, bot, nodejs, javascript
+✅ Adicionar emoji no título se quiser
+
+MELHORIAS OPCIONAIS:
+====================
+
+□ Adicionar badge de status no README
+□ Adicionar demo/screenshot
+□ Configurar GitHub Pages
+□ Adicionar workflow GitHub Actions
+□ Configurar Dependabot para atualizações
+□ Adicionar funding.yml para doações
+
+DEPOIS, QUALQUER ALTERAÇÃO:
+============================
+
+1. Fazer mudanças no código
+2. git add .
+3. git commit -m "Descrição"
+4. git push
+
+CLONE DO SEU REPOSITÓRIO:
+==========================
+
+Quando quiser clonar em outro lugar:
+
+git clone https://github.com/seu-usuario/whatsapp-bot-juizado.git
+cd whatsapp-bot-juizado
+npm install
+npm start
+
+COMPARTILHAR:
+==============
+
+Link para compartilhar seu projeto:
+https://github.com/seu-usuario/whatsapp-bot-juizado
+
+README Markdown para copiar (coloque em outros lugares):
+```
+# WhatsApp Bot - Juizado Especial
+Bot automático para atendimento via WhatsApp
+
+[Ver no GitHub](https://github.com/seu-usuario/whatsapp-bot-juizado)
+```
+
+📞 COMANDOS IMPORTANTES:
+========================
+
+git status          → Ver mudanças
+git log             → Ver histórico
+git add .           → Adicionar tudo
+git commit -m "msg" → Fazer commit
+git push            → Enviar para GitHub
+git pull            → Baixar do GitHub
+git branch          → Ver branches
+
+🆘 ERROS COMUNS:
+================
+
+"fatal: not a git repository"
+→ Solução: Execute "git init" no diretório
+
+"remote: Permission denied"
+→ Solução: Verifique autenticação SSH ou token
+
+"fatal: refusing to merge unrelated histories"
+→ Solução: Use --allow-unrelated-histories
+
+"Repository not found"
+→ Solução: Verifique URL e permissões
+
+📚 REFERÊNCIAS:
+===============
+
+GitHub Docs: https://docs.github.com/pt
+Git Tutorial: https://git-scm.com/book/pt-BR
+markdown Cheatsheet: https://www.markdownguide.org
+
+✨ PARABÉNS!
+=============
+
+Seu projeto está 100% pronto para GitHub!
+
+Siga os passos do checklist e você terá um repositório
+profissional e bem documentado!
+
+Qualquer dúvida, consulte: GITHUB_SETUP.txt

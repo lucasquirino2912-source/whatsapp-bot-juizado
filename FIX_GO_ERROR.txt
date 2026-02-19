@@ -1,0 +1,69 @@
+🔧 ERRO RENDER: "go.mod file not found"
+=========================================
+
+Esse erro ocorre quando o Render detecta errado o tipo de projeto.
+
+✅ SOLUÇÃO:
+===========
+
+Foi criado um arquivo `render.yaml` que explica ao Render que é Node.js!
+
+Agora você precisa:
+
+1. Fazer PUSH das mudanças:
+
+git add render.yaml
+git commit -m "Add: render.yaml to fix Go detection"
+git push
+
+2. No Render.com:
+
+→ Delete a app anterior
+→ Crie uma nova Web Service
+→ Render agora usará render.yaml
+→ Deploy correto como Node.js!
+
+📝 O QUE FOI ADICIONADO:
+========================
+
+render.yaml - Arquivo de configuração
+├─ type: web (tipo de serviço)
+├─ runtime: node (linguagem Node.js)
+├─ startCommand: npm start
+├─ buildCommand: npm install
+└─ Variáveis de ambiente
+
+Isso previne o erro de detectar como Go!
+
+🚀 PRÓXIMOS PASSOS:
+===================
+
+1. Push render.yaml:
+
+git add render.yaml
+git commit -m "Add: render.yaml configuration"
+git push
+
+2. Deletar app no Render:
+   → Vá em Settings
+   → Delete service
+   → Confirme
+
+3. Criar novo Web Service:
+   → New + Web Service
+   → Selecione repo
+   → Deixe as configurações padrão
+   → Deploy!
+
+Desta vez funcionará! ✅
+
+💡 ALTERNATIVA:
+
+Se preferir, pode usar Dockerfile também!
+
+No Render, ao criar Web Service:
+→ Selecione "Docker" como Runtime
+→ Render usa o Dockerfile automaticamente
+→ Sem problemas de detecção
+
+Ambas as formas funcionam! 🎉

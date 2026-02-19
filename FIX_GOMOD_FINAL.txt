@@ -1,0 +1,59 @@
+🔴 ERRO: "go.mod file not found" - SOLUÇÃO DEFINITIVA
+=====================================================
+
+O render.yaml não é reconhecido. Solução: Use Docker diretamente!
+
+✅ PASSO 1: DELETAR APP NO RENDER
+==================================
+
+1. Acesse: https://render.com/dashboard
+2. Selecione a app que está dando erro
+3. Vá em "Settings"
+4. Role para baixo e clique "Delete Service"
+5. Confirme
+
+✅ PASSO 2: FAZER PUSH DO render.yaml ATUALIZADO
+==================================================
+
+git add render.yaml
+git commit -m "Update: render.yaml to use Docker"
+git push
+
+✅ PASSO 3: CRIAR NOVO WEB SERVICE COMO DOCKER
+===============================================
+
+1. Clique "New +" → "Web Service"
+2. Conecte seu repositório
+3. Preencha:
+   - Name: whatsapp-bot-juizado
+   - Runtime: Docker (NÃO Node!)
+   
+   ⚠️ IMPORTANTE: Selecione DOCKER, não Node.js!
+
+4. Render usará Dockerfile automaticamente
+5. Deploy!
+
+✅ PASSO 4: VERIFICAR LOGS
+===========================
+
+Após deploy:
+1. Acesse a app no Render
+2. Vá em "Logs"
+3. Procure por "Servidor de monitoramento rodando"
+4. Se aparecer, funcionou! ✅
+
+🎯 RESUMO DO QUE MUDOU:
+=======================
+
+render.yaml:
+- runtime: node → dockerfilePath: ./Dockerfile
+- Agora força uso do Dockerfile
+- Render detecta como Docker, não Go
+
+✨ ISSO RESOLVE O ERRO!
+
+Próximo passo:
+1. Delete app anterior
+2. Push render.yaml
+3. Crie novo Web Service COMO DOCKER
+4. Pronto!
