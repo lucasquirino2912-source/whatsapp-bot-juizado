@@ -23,12 +23,33 @@ if (process.env.NODE_ENV === "production") {
   puppeteerArgs.push("--disable-default-apps");
 }
 
+
+// Detecta o caminho do Chromium no ambiente de produção
+let chromiumPath = undefined;
+if (process.env.NODE_ENV === "production") {
+  const candidates = [
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/google-chrome"
+  ];
+  for (const path of candidates) {
+    if (fs.existsSync(path)) {
+      chromiumPath = path;
+      console.log("[INFO] Chromium detectado em:", path);
+      break;
+    }
+  }
+  if (!chromiumPath) {
+    console.warn("[WARN] Nenhum executável Chromium encontrado nos caminhos padrão!");
+  }
+}
+
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
     headless: true,
     args: puppeteerArgs,
-    executablePath: process.env.NODE_ENV === "production" ? "/usr/bin/chromium" : undefined,
+    executablePath: chromiumPath,
   },
   webVersion: "2.2412.54",
 });
