@@ -145,30 +145,44 @@ if (fs.existsSync(authDir)) {
   }
 }
 
+// Registra listeners ANTES de initialize
+console.log("[LOG] Registrando listeners de eventos...");
+
+// Universal listener para debug
+client.on("all", (event, ...args) => {
+  if (!event.includes("message") && !event.includes("contact_changed")) {
+    const arg0Str = args.length > 0 ? JSON.stringify(args[0]).substring(0, 80) : "";
+    console.log(`[EVENT] ${event} ${arg0Str ? "→ " + arg0Str : ""}`);
+  }
+});
+
+console.log("[LOG] ✅ Listeners registrados\n");
+
 // Timeout para log de debug caso o cliente demore muito
 setTimeout(() => {
-  console.log("[DEBUG] ⏱️ Cliente ainda inicializando após 10 segundos...");
+  console.log("[DEBUG] ⏱️ 10 segundos se passaram, cliente ainda inicializando...");
 }, 10000);
 
 setTimeout(() => {
-  console.log("[DEBUG] ⏱️ Cliente AINDA inicializando após 30 segundos...");
-  console.log("[DEBUG] Se o QR Code não apareceu, pode ser um problema de WebSocket ou sessão persistida");
+  console.log("[DEBUG] ⏱️ 30 segundos se passaram, cliente ainda inicializando...");
+  console.log("[DEBUG] Possível: problema de WebSocket, sessão persistida ou Puppeteer");
 }, 30000);
 
-client.initialize().catch((err) => {
-  console.error("❌ ERRO CRÍTICO ao inicializar o WhatsApp Web:", err.message || err);
-  console.error(err.stack);
-});
+setTimeout(() => {
+  console.log("[DEBUG] ⏱️ 60 segundos se passaram, verifique erros acima");
+}, 60000);
 
-// Log após initialize ser chamado
-console.log("[LOG] client.initialize() foi chamado com sucesso\n");
-
-// Listener para qualquer evento emitido pelo cliente (para debug)
-client.on("all", (event, ...args) => {
-  if (event !== "message") { // ignora message events para não poluir logs
-    console.log(`[EVENT] ${event}:`, args.length > 0 ? args[0] : "");
-  }
-});
+// Chamando initialize
+console.log("[LOG] Iniciando cliente.initialize()...");
+client.initialize()
+  .then(() => {
+    console.log("[LOG] ✅ client.initialize() resolvido!");
+  })
+  .catch((err) => {
+    console.error("❌ client.initialize() falhou:");
+    console.error("   Erro:", err.message);
+    console.error("   Stack:", err.stack ? err.stack.split("\n").slice(0, 3).join("\n   ") : "N/A");
+  });
 
 // =====================================
 // FUNÇÃO DE DELAY
