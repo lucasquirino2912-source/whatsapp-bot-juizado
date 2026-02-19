@@ -9,18 +9,26 @@ const { Client, MessageMedia, LocalAuth } = require("whatsapp-web.js");
 // =====================================
 // CONFIGURAÇÃO DO CLIENTE
 // =====================================
+const puppeteerArgs = [
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-dev-shm-usage",
+  "--disable-gpu",
+  "--disable-web-resources",
+  "--disable-features=IsolateOrigins,site-per-process",
+];
+
+// Se está em Docker, usa Chromium do sistema
+if (process.env.NODE_ENV === "production") {
+  puppeteerArgs.push("--disable-default-apps");
+}
+
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
     headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--disable-web-resources",
-      "--disable-features=IsolateOrigins,site-per-process",
-    ],
+    args: puppeteerArgs,
+    executablePath: process.env.NODE_ENV === "production" ? "/usr/bin/chromium-browser" : undefined,
   },
   webVersion: "2.2412.54",
 });

@@ -1,5 +1,13 @@
 # Use Node.js image
-FROM node:18-alpine
+FROM node:18
+
+# Install Chrome/Chromium dependencies for Puppeteer/WhatsApp Web
+RUN apt-get update && apt-get install -y \
+    chromium-browser \
+    ca-certificates \
+    fontconfig \
+    fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
