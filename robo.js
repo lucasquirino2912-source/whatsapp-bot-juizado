@@ -158,8 +158,17 @@ process.on("unhandledRejection", (reason) => {
 // Registra listeners
 console.log("[LOG] Registrando listeners...");
 
+let qrReceived = false;
+
 client.on("qr", (qr) => {
+  qrReceived = true;
   console.log("[EVENT] QR CODE RECEBIDO!");
+  console.log("\n\n");
+  console.log("═════════════════════════════════════════════════════════");
+  console.log("📲 QR CODE - Escaneie com seu WhatsApp");
+  console.log("═════════════════════════════════════════════════════════");
+  qrcode.generate(qr, { small: true });
+  console.log("═════════════════════════════════════════════════════════\n\n");
 });
 
 client.on("authenticated", () => {
@@ -181,25 +190,35 @@ client.on("error", (err) => {
 console.log("[LOG] Iniciando cliente...");
 console.log("[LOG] " + new Date().toISOString());
 
-// Timeout de segurança
-let resolved = false;
-setTimeout(() => {
-  if (!resolved) {
-    console.log("[TIMEOUT] 60 segundos sem resposta - saindo");
-    process.exit(1);
-  }
-}, 60000);
+// COMEÇA A INICIALIZAÇÃO - não espera completar
+console.log("[LOG] Chamando initialize()...");
+client.initialize();
 
-client.initialize()
-  .then(() => {
-    resolved = true;
-    console.log("[SUCCESS] Cliente inicializado!");
-  })
-  .catch((err) => {
-    resolved = true;
-    console.log("[ERROR] Falha na inicialização:", err.message);
-    process.exit(1);
-  });
+// Monitora o QR Code
+let checkCount = 0;
+const qrMonitor = setInterval(() => {
+  checkCount++;
+  console.log(`[MONITOR] Check ${checkCount}: QR Code recebido? ${qrReceived ? 'SIM ✅' : 'Aguardando...'}`);
+  
+  // Se passar de 30 segundos sem QR Code, mata o intervalo
+  if (checkCount >= 30) {
+    clearInterval(qrMonitor);
+    if (!qrReceived) {
+      console.log("[WARNING] QR Code não recebido após 30 segundos");
+      console.log("[INFO] Tentando reiniciar cliente...");
+      // Limpa e tenta novamente
+      fs.rmSync(path.join(__dirname, ".wwebjs_auth"), { recursive: true, force: true });
+      client.initialize();
+    }
+  }
+}, 1000);
+
+// Timeout de segurança: se não conectar em 120 segundos, sai
+setTimeout(() => {
+  console.log("[TIMEOUT] 120 segundos sem conexão - saindo");
+  clearInterval(qrMonitor);
+  process.exit(1);
+}, 120000);
 
 // =====================================
 // FUNÇÃO DE DELAY
