@@ -215,9 +215,12 @@ process.on("unhandledRejection", (err) => {
 
 client.initialize();
 
-// =====================================
 // FUNIL DE MENSAGENS
 // =====================================
+
+// Rastrear usuários que já viram o menu
+const usuariosComMenu = new Set();
+
 client.on("message", async (msg) => {
   try {
     if (!msg.from || msg.from.endsWith("@g.us")) return;
@@ -241,7 +244,8 @@ client.on("message", async (msg) => {
       await delay(tempo);
     };
 
-    if (/^(menu|oi|olá|ola|bom dia|boa tarde|boa noite)$/i.test(texto)) {
+    // Função para enviar menu
+    const enviarMenu = async () => {
       await typing(3000);
 
       let saudacao = "Olá";
@@ -270,9 +274,19 @@ client.on("message", async (msg) => {
         `_Por favor, responda apenas com o número._`;
 
       await client.sendMessage(msg.from, menuMsg);
+      usuariosComMenu.add(msg.from);
+    };
+
+    // Palavras-chave que ativam o menu
+    const ativaMenu = /^(menu|oi|olá|ola|bom dia|boa tarde|boa noite|oi tudo bem|olá tudo bem|opa|e aí|eae|opa tudo bem)$/i.test(texto);
+
+    // Se for palavra-chave OU primeira mensagem, mostrar menu
+    if (ativaMenu || !usuariosComMenu.has(msg.from)) {
+      await enviarMenu();
       return;
     }
 
+    // Processamento das opções do menu
     switch (texto) {
       case "1":
         await typing();
