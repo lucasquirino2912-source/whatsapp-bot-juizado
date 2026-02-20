@@ -182,6 +182,12 @@ const limparSessaoAnterior = () => {
   } catch (err) {
     console.log("[WARN] Erro ao limpar cache:", err.message);
   }
+
+  // Aguardar um pouco para garantir que o sistema de arquivos foi atualizado
+  const agora = new Date();
+  while (new Date() - agora < 1000) {
+    // Spin por 1 segundo
+  }
 };
 
 // Executar limpeza antes de inicializar
@@ -191,11 +197,38 @@ console.log("\n🚀 INICIANDO BOT WHATSAPP...\n");
 console.log("[INFO] Aguardando conexão com WhatsApp...");
 console.log("[INFO] Quando o QR Code for gerado, ele será exibido abaixo:\n");
 
+// Função para inicializar com retentativa
+async function inicializarComRetentativa(tentativa = 1) {
+  const maxTentativas = 3;
+  
+  try {
+    await client.initialize();
+    console.log("[INFO] ✅ Cliente inicializado com sucesso");
+  } catch (err) {
+    console.error(`❌ Erro na inicialização (tentativa ${tentativa}/${maxTentativas}):`, err.message);
+    
+    if (err.message.includes("browser is already running") && tentativa < maxTentativas) {
+      console.log(`[INFO] Aguardando 5 segundos antes de retentativa ${tentativa + 1}...`);
+      statusMessage = `Tentando reconectar... (${tentativa}/${maxTentativas})`;
+      
+      // Limpar processo antigo do Puppeteer
+      try {
+        await client.destroy();
+      } catch (e) {
+        console.log("[WARN] Erro ao destruir cliente anterior:", e.message);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      await inicializarComRetentativa(tentativa + 1);
+    } else {
+      statusMessage = `Erro ao inicializar: ${err.message}`;
+      console.error("❌ Falha após retentativas. Aguardando redeploy...");
+    }
+  }
+}
+
 // Inicializar cliente
-client.initialize().catch((err) => {
-  statusMessage = `Erro ao inicializar: ${err.message}`;
-  console.error("❌ Erro ao inicializar:", err.message);
-});
+inicializarComRetentativa();
 
 // =====================================
 // EXCEPTION HANDLERS
