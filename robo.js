@@ -249,6 +249,17 @@ process.on("unhandledRejection", (err) => {
 // Rastrear usuários que já viram o menu
 const usuariosComMenu = new Set();
 
+// Remover listeners duplicados de tentativas anteriores
+client.removeAllListeners('message');
+
+// Definir instrução de atendimento contextual
+const getInstrucaoAtendimento = (ehFinalDeSemana, foraDoHorario) => {
+  if (ehFinalDeSemana || foraDoHorario) {
+    return " Para suporte adicional, digite 4.";
+  }
+  return " Para suporte adicional, digite 4.";
+};
+
 client.on("message", async (msg) => {
   try {
     if (!msg.from || msg.from.endsWith("@g.us")) return;
@@ -297,12 +308,12 @@ client.on("message", async (msg) => {
         `Como podemos ajudar? Digite o número da opção desejada:\n\n` +
         `1️⃣ - Consultar andamento processual\n` +
         `2️⃣ - Orientações sobre audiências\n` +
-        `3️⃣ - Consultar andamento da execução/alvará\n` +
-        `4️⃣ - Falar com um atendente\n\n` +
+        `3️⃣ - Consultar andamento da execução/alvará\n\n` +
         `_Por favor, responda apenas com o número._`;
 
       await client.sendMessage(msg.from, menuMsg);
       usuariosComMenu.add(msg.from);
+      return;
     };
 
     // Palavras-chave que ativam o menu
@@ -314,19 +325,21 @@ client.on("message", async (msg) => {
       return;
     }
 
-    // Processamento das opções do menu
+    // 2. TRATAMENTO DAS OPÇÕES DO MENU
+    const instrucaoAtendimento = getInstrucaoAtendimento(ehFinalDeSemana, foraDoHorario);
+    
     switch (texto) {
       case "1":
         await typing();
-        await client.sendMessage(msg.from, "🔍 Para consultar o andamento, pode aceder ao portal do PJe ou informar o seu nome e o número do processo aqui (bem como um breve relato do seu pedido ou dúvida) para que possamos verificar assim que possível." + voltarMenu);
+        await client.sendMessage(msg.from, "🔍 Para consultar o andamento, pode aceder ao portal do PJe ou informar os dados abaixo para verificação." + instrucaoAtendimento + voltarMenu);
         break;
       case "2":
         await typing();
-        await client.sendMessage(msg.from, "⚖️ As audiências são realizadas preferencialmente de forma virtual. Caso tenha uma audiência agendada, o link será disponibilizado nos autos do processo." + voltarMenu);
+        await client.sendMessage(msg.from, "⚖️ As audiências são realizadas preferencialmente de forma virtual. Caso tenha uma audiência agendada, o link será disponibilizado nos autos do processo. Se precisar de suporte específico sobre o link," + instrucaoAtendimento + voltarMenu);
         break;
       case "3":
         await typing();
-        await client.sendMessage(msg.from, "💰 Para consultar a expedição de alvarás ou o status da execução, informe o número do processo. Ressaltamos que se o processo estiver na fase de expedição do ofício requisitório de pagamento (RPV/precatório), eventuais dúvidas deverão ser tratadas diretamente com a SERPREC (serprec@tjrn.jus.br)." + voltarMenu);
+        await client.sendMessage(msg.from, "💰 Para consultar a expedição de alvarás ou o status da execução, informe o número do processo. Ressaltamos que se o processo estiver na fase de expedição do ofício requisitório de pagamento (RPV/precatório), eventuais dúvidas deverão ser tratadas diretamente com a SERPREC (serprec@tjrn.jus.br)." + instrucaoAtendimento + voltarMenu);
         break;
       case "4":
         await typing();
