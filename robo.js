@@ -243,11 +243,6 @@ process.on("unhandledRejection", (err) => {
 });
 
 // =====================================
-// CLIENTE WHATSAPP DESTRUÍDO
-// =====================================
-
-client.initialize();
-
 // FUNIL DE MENSAGENS
 // =====================================
 
