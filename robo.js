@@ -249,16 +249,20 @@ process.on("unhandledRejection", (err) => {
 // Rastrear usuários que já viram o menu
 const usuariosComMenu = new Set();
 
-// Remover listeners duplicados de tentativas anteriores
-client.removeAllListeners('message');
+// Flag para evitar registrar múltiplos listeners
+let mensagenListenerRegistrado = false;
 
 // Definir instrução de atendimento contextual
 const getInstrucaoAtendimento = (ehFinalDeSemana, foraDoHorario) => {
   if (ehFinalDeSemana || foraDoHorario) {
-    return " Para suporte adicional, digite 4.";
+    return " Para suporte adicional, entre em contato no próximo dia útil.";
   }
   return " Para suporte adicional, digite 4.";
 };
+
+// Registrar listener apenas uma vez
+if (!mensagenListenerRegistrado) {
+  mensagenListenerRegistrado = true;
 
 client.on("message", async (msg) => {
   try {
@@ -355,3 +359,4 @@ client.on("message", async (msg) => {
     console.error("❌ Erro no processamento da mensagem:", error);
   }
 });
+} // Fim do if (!mensagenListenerRegistrado)
