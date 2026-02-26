@@ -335,7 +335,7 @@ client.on("message", async (msg) => {
     switch (texto) {
       case "1":
         await typing();
-        await client.sendMessage(msg.from, "🔍 Para consultar o andamento, pode aceder ao portal do PJe ou informar os dados abaixo para verificação." + instrucaoAtendimento + voltarMenu);
+        await client.sendMessage(msg.from, "🔍 Para consultar o andamento, pode aceder ao portal do PJe ou *informar os dados abaixo para verificação* (nome e número do processo)." + instrucaoAtendimento + voltarMenu);
         break;
       case "2":
         await typing();
@@ -343,7 +343,7 @@ client.on("message", async (msg) => {
         break;
       case "3":
         await typing();
-        await client.sendMessage(msg.from, "💰 Para consultar a expedição de alvarás ou o status da execução, informe o número do processo. Ressaltamos que se o processo estiver na fase de expedição do ofício requisitório de pagamento (RPV/precatório), eventuais dúvidas deverão ser tratadas diretamente com a SERPREC (serprec@tjrn.jus.br)." + instrucaoAtendimento + voltarMenu);
+        await client.sendMessage(msg.from, "💰 Para consultar a expedição de alvarás ou o status da execução, *informe o número do processo*. Ressaltamos que se o processo estiver na fase de expedição do ofício requisitório de pagamento (RPV/precatório), eventuais dúvidas deverão ser tratadas diretamente com a SERPREC (serprec@tjrn.jus.br)." + instrucaoAtendimento + voltarMenu);
         break;
       case "4":
         await typing();
