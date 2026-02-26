@@ -252,6 +252,10 @@ const usuariosComMenu = new Set();
 // Flag para evitar registrar múltiplos listeners
 let mensagenListenerRegistrado = false;
 
+// Debouncing: armazenar ID e timestamp de mensagens processadas
+const mensagensProcessadas = new Map();
+const DEBOUNCE_TIMEOUT = 2000; // 2 segundos
+
 // Definir instrução de atendimento contextual
 const getInstrucaoAtendimento = (ehFinalDeSemana, foraDoHorario) => {
   if (ehFinalDeSemana || foraDoHorario) {
@@ -265,6 +269,25 @@ if (!mensagenListenerRegistrado) {
   mensagenListenerRegistrado = true;
 
 client.on("message", async (msg) => {
+  // Verificar se a mensagem já foi processada recentemente (debouncing)
+  const msgKey = `${msg.from}:${msg.timestamp}`;
+  const agora = Date.now();
+  const ultimaVez = mensagensProcessadas.get(msgKey);
+  
+  if (ultimaVez && (agora - ultimaVez) < DEBOUNCE_TIMEOUT) {
+    console.log(`[DEBOUNCE] Ignorando mensagem duplicada de ${msg.from}`);
+    return;
+  }
+  
+  // Registrar que processamos esta mensagem
+  mensagensProcessadas.set(msgKey, agora);
+  
+  // Limpar entradas antigas (mais de 5 segundos)
+  for (const [key, timestamp] of mensagensProcessadas.entries()) {
+    if (agora - timestamp > 5000) {
+      mensagensProcessadas.delete(key);
+    }
+  }
   try {
     if (!msg.from || msg.from.endsWith("@g.us")) return;
 
@@ -289,6 +312,12 @@ client.on("message", async (msg) => {
 
     // Função para enviar menu
     const enviarMenu = async () => {
+      // Verificar novamente se o usuário já tem menu registrado (double-check)
+      if (usuariosComMenu.has(msg.from)) {
+        console.log(`[INFO] Menu já foi mostrado para ${msg.from}. Ignorando.`);
+        return;
+      }
+      
       await typing(3000);
 
       let saudacao = "Olá";
@@ -317,6 +346,7 @@ client.on("message", async (msg) => {
 
       await client.sendMessage(msg.from, menuMsg);
       usuariosComMenu.add(msg.from);
+      console.log(`[INFO] Menu enviado para ${msg.from}`);
       return;
     };
 
