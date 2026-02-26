@@ -311,9 +311,10 @@ client.on("message", async (msg) => {
     };
 
     // Função para enviar menu
-    const enviarMenu = async () => {
+    const enviarMenu = async (forcado = false) => {
       // Verificar novamente se o usuário já tem menu registrado (double-check)
-      if (usuariosComMenu.has(msg.from)) {
+      // MAS: Se for ativado por palavra-chave (forcado=true), ignora este check
+      if (!forcado && usuariosComMenu.has(msg.from)) {
         console.log(`[INFO] Menu já foi mostrado para ${msg.from}. Ignorando.`);
         return;
       }
@@ -353,9 +354,15 @@ client.on("message", async (msg) => {
     // Palavras-chave que ativam o menu
     const ativaMenu = /^(menu|oi|olá|ola|bom dia|boa tarde|boa noite|oi tudo bem|olá tudo bem|opa|e aí|eae|opa tudo bem)$/i.test(texto);
 
-    // Se for palavra-chave OU primeira mensagem, mostrar menu
-    if (ativaMenu || !usuariosComMenu.has(msg.from)) {
-      await enviarMenu();
+    // Se for palavra-chave, mostrar menu (forcado=true)
+    if (ativaMenu) {
+      await enviarMenu(true);
+      return;
+    }
+    
+    // Se for primeira mensagem, mostrar menu (forcado=false, aplica double-check)
+    if (!usuariosComMenu.has(msg.from)) {
+      await enviarMenu(false);
       return;
     }
 
