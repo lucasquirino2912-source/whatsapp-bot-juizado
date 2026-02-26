@@ -271,20 +271,20 @@ if (!mensagenListenerRegistrado) {
 client.on("message", async (msg) => {
   // Verificar se a mensagem já foi processada recentemente (debouncing)
   const msgKey = `${msg.from}:${msg.timestamp}`;
-  const agora = Date.now();
+  const agoraMs = Date.now();
   const ultimaVez = mensagensProcessadas.get(msgKey);
   
-  if (ultimaVez && (agora - ultimaVez) < DEBOUNCE_TIMEOUT) {
+  if (ultimaVez && (agoraMs - ultimaVez) < DEBOUNCE_TIMEOUT) {
     console.log(`[DEBOUNCE] Ignorando mensagem duplicada de ${msg.from}`);
     return;
   }
   
   // Registrar que processamos esta mensagem
-  mensagensProcessadas.set(msgKey, agora);
+  mensagensProcessadas.set(msgKey, agoraMs);
   
   // Limpar entradas antigas (mais de 5 segundos)
   for (const [key, timestamp] of mensagensProcessadas.entries()) {
-    if (agora - timestamp > 5000) {
+    if (agoraMs - timestamp > 5000) {
       mensagensProcessadas.delete(key);
     }
   }
