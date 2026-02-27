@@ -183,11 +183,7 @@ const limparSessaoAnterior = () => {
     console.log("[WARN] Erro ao limpar cache:", err.message);
   }
 
-  // Aguardar um pouco para garantir que o sistema de arquivos foi atualizado
-  const agora = new Date();
-  while (new Date() - agora < 1000) {
-    // Spin por 1 segundo
-  }
+  console.log("[INFO] ✅ Limpeza de sessão concluída");
 };
 
 // Executar limpeza antes de inicializar
@@ -255,6 +251,31 @@ let mensagenListenerRegistrado = false;
 // Debouncing: armazenar ID e timestamp de mensagens processadas
 const mensagensProcessadas = new Map();
 const DEBOUNCE_TIMEOUT = 2000; // 2 segundos
+const MAX_CACHED_MESSAGES = 1000; // Limite de mensagens em cache
+
+// Garbage collection periódico (a cada 30 segundos)
+setInterval(() => {
+  const agora = Date.now();
+  let removidas = 0;
+  
+  // Limpar mensagens antigas
+  for (const [key, timestamp] of mensagensProcessadas.entries()) {
+    if (agora - timestamp > 10000) { // Remover após 10 segundos
+      mensagensProcessadas.delete(key);
+      removidas++;
+    }
+  }
+  
+  // Se cache ficou muito grande, limpar tudo
+  if (mensagensProcessadas.size > MAX_CACHED_MESSAGES) {
+    console.log(`[GC] Cache de mensagens excedeu ${MAX_CACHED_MESSAGES}. Limpando...`);
+    mensagensProcessadas.clear();
+  }
+  
+  if (removidas > 0) {
+    console.log(`[GC] Removidas ${removidas} mensagens antigas do cache`);
+  }
+}, 30000);
 
 // Definir instrução de atendimento contextual
 const getInstrucaoAtendimento = (ehFinalDeSemana, foraDoHorario) => {
@@ -282,12 +303,6 @@ client.on("message", async (msg) => {
   // Registrar que processamos esta mensagem
   mensagensProcessadas.set(msgKey, agoraMs);
   
-  // Limpar entradas antigas (mais de 5 segundos)
-  for (const [key, timestamp] of mensagensProcessadas.entries()) {
-    if (agoraMs - timestamp > 5000) {
-      mensagensProcessadas.delete(key);
-    }
-  }
   try {
     if (!msg.from || msg.from.endsWith("@g.us")) return;
 
