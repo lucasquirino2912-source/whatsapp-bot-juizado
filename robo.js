@@ -186,13 +186,6 @@ const limparSessaoAnterior = () => {
   console.log("[INFO] ✅ Limpeza de sessão concluída");
 };
 
-// Executar limpeza antes de inicializar
-limparSessaoAnterior();
-
-console.log("\n🚀 INICIANDO BOT WHATSAPP...\n");
-console.log("[INFO] Aguardando conexão com WhatsApp...");
-console.log("[INFO] Quando o QR Code for gerado, ele será exibido abaixo:\n");
-
 // Função para inicializar com retentativa
 async function inicializarComRetentativa(tentativa = 1) {
   const maxTentativas = 3;
@@ -223,8 +216,18 @@ async function inicializarComRetentativa(tentativa = 1) {
   }
 }
 
-// Inicializar cliente
-inicializarComRetentativa();
+// Executar limpeza antes de inicializar
+limparSessaoAnterior();
+
+// Aguardar 2 segundos para o sistema de arquivos processar a limpeza
+setTimeout(() => {
+  console.log("\n🚀 INICIANDO BOT WHATSAPP...\n");
+  console.log("[INFO] Aguardando conexão com WhatsApp...");
+  console.log("[INFO] Quando o QR Code for gerado, ele será exibido abaixo:\n");
+
+  // Inicializar cliente
+  inicializarComRetentativa();
+}, 2000);
 
 // =====================================
 // EXCEPTION HANDLERS
