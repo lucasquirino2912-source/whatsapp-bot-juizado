@@ -245,25 +245,48 @@ process.on("unhandledRejection", (err) => {
 // FUNIL DE MENSAGENS
 // =====================================
 
-// Rastrear usuários que já viram o menu
-const usuariosComMenu = new Set();
+// Rastrear usuários que já viram o menu (com expiração)
+const usuariosComMenu = new Map(); // Mudado de Set para Map com timestamps
 
 // Flag para evitar registrar múltiplos listeners
 let mensagenListenerRegistrado = false;
 
-// Debouncing: armazenar ID e timestamp de mensagens processadas
+// Debouncing: armazenar ID e timestamp de mensagens processadas (com limite agressivo)
 const mensagensProcessadas = new Map();
 const DEBOUNCE_TIMEOUT = 2000; // 2 segundos
-const MAX_CACHED_MESSAGES = 1000; // Limite de mensagens em cache
+const MAX_CACHED_MESSAGES = 300; // Reduzido de 1000 para 300
+const MAX_USUARIOS_MENU = 5000; // Limite de usuários em memória
+const USUARIO_MENU_EXPIRY = 86400000; // 24 horas em ms
 
-// Garbage collection periódico (a cada 30 segundos)
+// Função para limpar usuário antigo do menu
+const limparUsuarioMenuAntigoSeNecessario = () => {
+  if (usuariosComMenu.size > MAX_USUARIOS_MENU) {
+    const agora = Date.now();
+    let removidos = 0;
+    
+    // Remover usuários mais antigos
+    for (const [usuario, timestamp] of usuariosComMenu.entries()) {
+      if (agora - timestamp > USUARIO_MENU_EXPIRY) {
+        usuariosComMenu.delete(usuario);
+        removidos++;
+      }
+      if (usuariosComMenu.size <= MAX_USUARIOS_MENU * 0.8) break; // Parar quando atingir 80%
+    }
+    
+    if (removidos > 0) {
+      console.log(`[GC] Removidos ${removidos} usuários antigos do menu (total: ${usuariosComMenu.size})`);
+    }
+  }
+};
+
+// Garbage collection periódico (a cada 15 segundos - mais agressivo)
 setInterval(() => {
   const agora = Date.now();
   let removidas = 0;
   
-  // Limpar mensagens antigas
+  // Limpar mensagens antigas agressivamente (após 5 segundos ao invés de 10)
   for (const [key, timestamp] of mensagensProcessadas.entries()) {
-    if (agora - timestamp > 10000) { // Remover após 10 segundos
+    if (agora - timestamp > 5000) {
       mensagensProcessadas.delete(key);
       removidas++;
     }
@@ -271,14 +294,30 @@ setInterval(() => {
   
   // Se cache ficou muito grande, limpar tudo
   if (mensagensProcessadas.size > MAX_CACHED_MESSAGES) {
-    console.log(`[GC] Cache de mensagens excedeu ${MAX_CACHED_MESSAGES}. Limpando...`);
-    mensagensProcessadas.clear();
+    const excesso = mensagensProcessadas.size - MAX_CACHED_MESSAGES;
+    // Limpar os itens mais antigos
+    let contador = 0;
+    for (const [key, timestamp] of mensagensProcessadas.entries()) {
+      if (contador >= excesso) break;
+      mensagensProcessadas.delete(key);
+      removidas++;
+      contador++;
+    }
+    console.log(`[GC] Cache de mensagens reduzido: ${mensagensProcessadas.size} itens`);
   }
   
-  if (removidas > 0) {
-    console.log(`[GC] Removidas ${removidas} mensagens antigas do cache`);
+  // Limpar usuários do menu se necessário
+  limparUsuarioMenuAntigoSeNecessario();
+  
+  // Exibir status de memória (para debugging)
+  const memUsage = process.memoryUsage();
+  const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+  const heapTotalMB = Math.round(memUsage.heapTotal / 1024 / 1024);
+  
+  if (removidas > 0 || mensagensProcessadas.size > 100) {
+    console.log(`[GC] Msgs: ${mensagensProcessadas.size}, Usuários: ${usuariosComMenu.size}, Heap: ${heapUsedMB}MB/${heapTotalMB}MB`);
   }
-}, 30000);
+}, 15000); // Reduzido de 30s para 15s
 
 // Definir instrução de atendimento contextual
 const getInstrucaoAtendimento = (ehFinalDeSemana, foraDoHorario) => {
@@ -364,7 +403,7 @@ client.on("message", async (msg) => {
         `_Por favor, responda apenas com o número._`;
 
       await client.sendMessage(msg.from, menuMsg);
-      usuariosComMenu.add(msg.from);
+      usuariosComMenu.set(msg.from, Date.now()); // Armazenar timestamp ao invés de apenas marcar
       console.log(`[INFO] Menu enviado para ${msg.from}`);
       return;
     };
