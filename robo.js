@@ -57,7 +57,22 @@ const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
     headless: true,
-    args: puppeteerArgs,
+    args: [
+      ...puppeteerArgs,
+      "--memory-pressure-off",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-background-timer-throttling",
+      "--disable-breakpad",
+      "--disable-client-side-phishing-detection",
+      "--disable-component-extensions-with-background-pages",
+      "--disable-default-apps",
+      "--disable-hang-monitor",
+      "--disable-popup-blocking",
+      "--disable-prompt-on-repost",
+      "--disable-sync",
+      "--enable-automation",
+      "--no-service-autorun",
+    ],
     executablePath: chromiumPath,
   },
   webVersion: "2.2412.54",
@@ -254,9 +269,9 @@ let mensagenListenerRegistrado = false;
 // Debouncing: armazenar ID e timestamp de mensagens processadas (com limite agressivo)
 const mensagensProcessadas = new Map();
 const DEBOUNCE_TIMEOUT = 2000; // 2 segundos
-const MAX_CACHED_MESSAGES = 300; // Reduzido de 1000 para 300
-const MAX_USUARIOS_MENU = 5000; // Limite de usuários em memória
-const USUARIO_MENU_EXPIRY = 86400000; // 24 horas em ms
+const MAX_CACHED_MESSAGES = 100; // Reduzido drasticamente de 300 para 100
+const MAX_USUARIOS_MENU = 1000; // Reduzido de 5000 para 1000
+const USUARIO_MENU_EXPIRY = 43200000; // Reduzido para 12 horas (antes era 24)
 
 // Função para limpar usuário antigo do menu
 const limparUsuarioMenuAntigoSeNecessario = () => {
@@ -279,45 +294,50 @@ const limparUsuarioMenuAntigoSeNecessario = () => {
   }
 };
 
-// Garbage collection periódico (a cada 15 segundos - mais agressivo)
+// Monitoramento agressivo de memória (a cada 10 segundos)
 setInterval(() => {
   const agora = Date.now();
   let removidas = 0;
   
-  // Limpar mensagens antigas agressivamente (após 5 segundos ao invés de 10)
+  // Limpar mensagens antigas agressivamente (após 3 segundos)
   for (const [key, timestamp] of mensagensProcessadas.entries()) {
-    if (agora - timestamp > 5000) {
+    if (agora - timestamp > 3000) {
       mensagensProcessadas.delete(key);
       removidas++;
     }
   }
   
-  // Se cache ficou muito grande, limpar tudo
+  // Se cache ficou muito grande, limpar TUDO
   if (mensagensProcessadas.size > MAX_CACHED_MESSAGES) {
-    const excesso = mensagensProcessadas.size - MAX_CACHED_MESSAGES;
-    // Limpar os itens mais antigos
-    let contador = 0;
-    for (const [key, timestamp] of mensagensProcessadas.entries()) {
-      if (contador >= excesso) break;
-      mensagensProcessadas.delete(key);
-      removidas++;
-      contador++;
-    }
-    console.log(`[GC] Cache de mensagens reduzido: ${mensagensProcessadas.size} itens`);
+    const antes = mensagensProcessadas.size;
+    mensagensProcessadas.clear();
+    console.log(`[GC] LIMPEZA COMPLETA: ${antes} mensagens removidas`);
+    removidas = antes;
   }
   
   // Limpar usuários do menu se necessário
   limparUsuarioMenuAntigoSeNecessario();
   
-  // Exibir status de memória (para debugging)
+  // Forçar garbage collection do Node.js se disponível
+  if (global.gc) {
+    global.gc();
+  }
+  
+  // Exibir status de memória crítico
   const memUsage = process.memoryUsage();
   const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
   const heapTotalMB = Math.round(memUsage.heapTotal / 1024 / 1024);
+  const heapPercent = Math.round((memUsage.heapUsed / memUsage.heapTotal) * 100);
   
-  if (removidas > 0 || mensagensProcessadas.size > 100) {
-    console.log(`[GC] Msgs: ${mensagensProcessadas.size}, Usuários: ${usuariosComMenu.size}, Heap: ${heapUsedMB}MB/${heapTotalMB}MB`);
+  console.log(`[GC] Heap: ${heapUsedMB}MB/${heapTotalMB}MB (${heapPercent}%) | Msgs: ${mensagensProcessadas.size} | Usuários: ${usuariosComMenu.size}`);
+  
+  // ALERTA: Se heap usar mais de 80%, fazer limpeza agressiva
+  if (heapPercent > 80) {
+    console.error(`⚠️ ALERTA: Uso de memória crítico! ${heapPercent}%`);
+    mensagensProcessadas.clear();
+    console.log(`[CRITICAL] Cache de mensagens foi completamente limpo!`);
   }
-}, 15000); // Reduzido de 30s para 15s
+}, 10000);
 
 // Definir instrução de atendimento contextual
 const getInstrucaoAtendimento = (ehFinalDeSemana, foraDoHorario) => {
