@@ -266,12 +266,13 @@ const usuariosComMenu = new Map(); // Mudado de Set para Map com timestamps
 // Flag para evitar registrar múltiplos listeners
 let mensagenListenerRegistrado = false;
 
-// Debouncing: armazenar ID e timestamp de mensagens processadas (com limite agressivo)
+// Debouncing: armazenar ID e timestamp de mensagens processadas (com limite CRÍTICO)
 const mensagensProcessadas = new Map();
 const DEBOUNCE_TIMEOUT = 2000; // 2 segundos
-const MAX_CACHED_MESSAGES = 100; // Reduzido drasticamente de 300 para 100
-const MAX_USUARIOS_MENU = 1000; // Reduzido de 5000 para 1000
-const USUARIO_MENU_EXPIRY = 43200000; // Reduzido para 12 horas (antes era 24)
+const MAX_CACHED_MESSAGES = 50; // Crítico: apenas 50 mensagens
+const MAX_USUARIOS_MENU = 500; // Crítico: apenas 500 usuários
+const USUARIO_MENU_EXPIRY = 21600000; // Crítico: apenas 6 horas
+const MEMORY_RESTART_THRESHOLD = 300; // Se RSS > 300MB, fazer restart automático
 
 // Função para limpar usuário antigo do menu
 const limparUsuarioMenuAntigoSeNecessario = () => {
@@ -294,14 +295,16 @@ const limparUsuarioMenuAntigoSeNecessario = () => {
   }
 };
 
-// Monitoramento agressivo de memória (a cada 10 segundos)
-setInterval(() => {
+// Monitoramento CRÍTICO de memória (a cada 5 segundos) com restart automático
+let restartEmProgresso = false;
+
+setInterval(async () => {
   const agora = Date.now();
   let removidas = 0;
   
-  // Limpar mensagens antigas agressivamente (após 3 segundos)
+  // Limpar mensagens MUITO agressivamente (após 2 segundos)
   for (const [key, timestamp] of mensagensProcessadas.entries()) {
-    if (agora - timestamp > 3000) {
+    if (agora - timestamp > 2000) {
       mensagensProcessadas.delete(key);
       removidas++;
     }
@@ -311,33 +314,64 @@ setInterval(() => {
   if (mensagensProcessadas.size > MAX_CACHED_MESSAGES) {
     const antes = mensagensProcessadas.size;
     mensagensProcessadas.clear();
-    console.log(`[GC] LIMPEZA COMPLETA: ${antes} mensagens removidas`);
+    console.log(`[GC] LIMPEZA TOTAL: ${antes} mensagens removidas`);
     removidas = antes;
   }
   
-  // Limpar usuários do menu se necessário
+  // Limpar usuários do menu agressivamente
   limparUsuarioMenuAntigoSeNecessario();
   
-  // Forçar garbage collection do Node.js se disponível
+  // Forçar garbage collection
   if (global.gc) {
     global.gc();
   }
   
-  // Exibir status de memória crítico
   const memUsage = process.memoryUsage();
   const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
   const heapTotalMB = Math.round(memUsage.heapTotal / 1024 / 1024);
+  const externalMB = Math.round(memUsage.external / 1024 / 1024);
+  const rssUsedMB = Math.round(memUsage.rss / 1024 / 1024);
   const heapPercent = Math.round((memUsage.heapUsed / memUsage.heapTotal) * 100);
   
-  console.log(`[GC] Heap: ${heapUsedMB}MB/${heapTotalMB}MB (${heapPercent}%) | Msgs: ${mensagensProcessadas.size} | Usuários: ${usuariosComMenu.size}`);
+  console.log(`[GC] RSS: ${rssUsedMB}MB | Heap: ${heapUsedMB}MB/${heapTotalMB}MB (${heapPercent}%) | Ext: ${externalMB}MB | Cache: ${mensagensProcessadas.size} | Users: ${usuariosComMenu.size}`);
   
-  // ALERTA: Se heap usar mais de 80%, fazer limpeza agressiva
-  if (heapPercent > 80) {
-    console.error(`⚠️ ALERTA: Uso de memória crítico! ${heapPercent}%`);
-    mensagensProcessadas.clear();
-    console.log(`[CRITICAL] Cache de mensagens foi completamente limpo!`);
+  // CRÍTICO: Se RSS > MEMORY_RESTART_THRESHOLD, fazer restart automático
+  if (rssUsedMB > MEMORY_RESTART_THRESHOLD && !restartEmProgresso) {
+    console.error(`\n❌ MEMÓRIA CRÍTICA: ${rssUsedMB}MB > ${MEMORY_RESTART_THRESHOLD}MB`);
+    console.error(`🔄 INICIANDO RESTART AUTOMÁTICO...\n`);
+    restartEmProgresso = true;
+    
+    try {
+      // Limpar tudo
+      mensagensProcessadas.clear();
+      usuariosComMenu.clear();
+      
+      // Destruir cliente
+      try {
+        await client.destroy();
+      } catch (e) {
+        console.log("[WARN] Erro ao destruir cliente:", e.message);
+      }
+      
+      // Aguardar 3 segundos
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      // Reinicializar
+      console.log("[INFO] Reinicializando cliente WhatsApp...");
+      await inicializarComRetentativa();
+      restartEmProgresso = false;
+    } catch (e) {
+      console.error("[ERROR] Erro no restart:", e.message);
+      restartEmProgresso = false;
+    }
   }
-}, 10000);
+  
+  // AVISO: Se heap > 80%
+  if (heapPercent > 80) {
+    console.warn(`⚠️ AVISO: Heap em ${heapPercent}%`);
+    mensagensProcessadas.clear();
+  }
+}, 5000);
 
 // Definir instrução de atendimento contextual
 const getInstrucaoAtendimento = (ehFinalDeSemana, foraDoHorario) => {
