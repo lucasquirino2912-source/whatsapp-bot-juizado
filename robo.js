@@ -90,7 +90,10 @@ client.on("loading_screen", (percent, message) => {
 client.on("qr", (qr) => {
   lastQr = qr;
   statusMessage = "Aguardando leitura do QR Code";
-  console.log("📲 QR Code gerado. Aceda à rota /qr no navegador para digitalizá-lo.");
+  console.log("\n📲 ========================================");
+  console.log("📲 QR Code gerado! Escaneie com seu celular.");
+  console.log("📲 Aceda à rota /qr no navegador para digitalizá-lo.");
+  console.log("📲 ========================================\n");
   qrcode.generate(qr, { small: true });
 });
 
@@ -238,7 +241,9 @@ limparSessaoAnterior();
 setTimeout(() => {
   console.log("\n🚀 INICIANDO BOT WHATSAPP...\n");
   console.log("[INFO] Aguardando conexão com WhatsApp...");
-  console.log("[INFO] Quando o QR Code for gerado, ele será exibido abaixo:\n");
+  console.log("[INFO] Quando o QR Code for gerado, ele será exibido aqui e também em http://localhost:3000/qr\n");
+  console.log("[⏰] Você tem 5 minutos para escanear o QR Code");
+  console.log("[⏰] Após esse período, o bot entrará em modo de monitoramento\n");
 
   // Inicializar cliente
   inicializarComRetentativa();
@@ -297,9 +302,12 @@ const limparUsuarioMenuAntigoSeNecessario = () => {
 
 // Monitoramento CRÍTICO de memória (a cada 5 segundos) com restart automático
 let restartEmProgresso = false;
+let inicioExecucao = Date.now();
+const PERIODO_GRACA_RESTART = 300000; // 5 minutos de graça sem restart (tempo para QR)
 
 setInterval(async () => {
   const agora = Date.now();
+  const tempoExecucao = agora - inicioExecucao;
   let removidas = 0;
   
   // Limpar mensagens MUITO agressivamente (após 2 segundos)
@@ -336,7 +344,8 @@ setInterval(async () => {
   console.log(`[GC] RSS: ${rssUsedMB}MB | Heap: ${heapUsedMB}MB/${heapTotalMB}MB (${heapPercent}%) | Ext: ${externalMB}MB | Cache: ${mensagensProcessadas.size} | Users: ${usuariosComMenu.size}`);
   
   // CRÍTICO: Se RSS > MEMORY_RESTART_THRESHOLD, fazer restart automático
-  if (rssUsedMB > MEMORY_RESTART_THRESHOLD && !restartEmProgresso) {
+  // MAS: Nunca fazer restart durante o período inicial de autenticação (5 min)
+  if (rssUsedMB > MEMORY_RESTART_THRESHOLD && !restartEmProgresso && tempoExecucao > PERIODO_GRACA_RESTART) {
     console.error(`\n❌ MEMÓRIA CRÍTICA: ${rssUsedMB}MB > ${MEMORY_RESTART_THRESHOLD}MB`);
     console.error(`🔄 INICIANDO RESTART AUTOMÁTICO...\n`);
     restartEmProgresso = true;
@@ -359,11 +368,15 @@ setInterval(async () => {
       // Reinicializar
       console.log("[INFO] Reinicializando cliente WhatsApp...");
       await inicializarComRetentativa();
+      inicioExecucao = Date.now(); // Reset do período de graça após restart
       restartEmProgresso = false;
     } catch (e) {
       console.error("[ERROR] Erro no restart:", e.message);
       restartEmProgresso = false;
     }
+  } else if (tempoExecucao <= PERIODO_GRACA_RESTART) {
+    const tempoRestante = Math.round((PERIODO_GRACA_RESTART - tempoExecucao) / 1000);
+    console.log(`[INFO] Período de graça (sem restart): ${tempoRestante}s restantes`);
   }
   
   // AVISO: Se heap > 80%
