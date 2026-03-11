@@ -2,8 +2,44 @@ services:
   - type: web
     name: whatsapp-bot-juizado
     dockerfilePath: ./Dockerfile
+    
+    # Build configuration
+    buildFilter:
+      paths:
+        - src/**
+        - robo.js
+        - package.json
+        - Dockerfile
+    
+    # Environment variables
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3000
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "true"
+    
+    # Auto-deploy on git push
+    autoDeploy: true
+    
+    # Scaling
+    plan: standard
+    numInstances: 1
+    
+    # Resource limits
+    scaling:
+      minInstances: 1
+      maxInstances: 1
+    
+    # Health check
+    healthCheckPath: /health
+    healthCheckInterval: 30
+    healthCheckTimeout: 10
+    
+    # Timeout settings
+    healthCheckStartupFailureThresholdCount: 3
+    
+    # Pre/post deploy hooks (optional)
+    # preDeployCommand: npm install
+    # postDeployCommand: npm run build

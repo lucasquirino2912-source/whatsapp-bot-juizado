@@ -1,9 +1,11 @@
 # Use a Debian-based Node image (better apt support)
 FROM node:18-bullseye-slim
 
+# Environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV NODE_ENV=production
+ENV CHROMIUM_PATH=/usr/bin/chromium
 
 # Install Chromium and required libraries for Puppeteer
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -30,24 +32,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files first (better cache layer)
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install --production
+RUN npm install --production --ignore-scripts
 
 # Copy application files
 COPY . .
 
-# Create logs directory
-RUN mkdir -p logs
+# Create necessary directories
+RUN mkdir -p logs .wwebjs_auth
 
 # Expose port
 EXPOSE 3000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+# Start application
+CMD ["node", "robo.js"]
 
 # Start application with PM2
 CMD ["npm", "start"]

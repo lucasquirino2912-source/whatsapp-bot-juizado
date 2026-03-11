@@ -4,35 +4,31 @@ const qrcode = require("qrcode-terminal");
 const qrcodeImage = require("qrcode");
 const fs = require("fs");
 const path = require("path");
-const { Client, MessageMedia, LocalAuth } = require("whatsapp-web.js");
+const { Client, LocalAuth } = require("whatsapp-web.js");
 const express = require('express');
 
 // =====================================
-// CONFIGURAÇÃO DO EXPRESS (MONITORIZAÇÃO)
+// CONSTANTES E CONFIGURAÇÃO
+// =====================================
+const PORT = process.env.PORT || 3000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const AUTH_DIR = path.join(__dirname, '.wwebjs_auth');
+const CACHE_DIR = path.join(__dirname, '.wwebjs_cache');
+
+// =====================================
+// ESTADO GLOBAL
 // =====================================
 const app = express();
-const PORT = process.env.PORT || 3000;
 let lastQr = null;
 let statusMessage = "Iniciando sistema...";
+let isConnected = false;
 
 // =====================================
-// CONFIGURAÇÃO DO CLIENTE WHATSAPP
+// DETECTOR DE CHROMIUM
 // =====================================
-const puppeteerArgs = [
-  "--no-sandbox",
-  "--disable-setuid-sandbox",
-  "--disable-dev-shm-usage",
-  "--disable-gpu",
-  "--disable-web-resources",
-  "--disable-features=IsolateOrigins,site-per-process",
-];
-
-if (process.env.NODE_ENV === "production") {
-  puppeteerArgs.push("--disable-default-apps");
-}
-
-// Detecta o caminho do Chromium
-const detectorChromium = () => {
+const getChromiumPath = () => {
+  if (NODE_ENV !== 'production') return undefined;
+  
   const candidates = [
     "/usr/bin/chromium",
     "/usr/bin/chromium-browser",
@@ -42,622 +38,579 @@ const detectorChromium = () => {
   
   for (const caminho of candidates) {
     if (fs.existsSync(caminho)) {
-      console.log(`[INFO] Chromium detectado em: ${caminho}`);
+      console.log(`[INFO] Chromium detectado: ${caminho}`);
       return caminho;
     }
   }
   
-  console.log("[WARN] Nenhum Chromium encontrado. Usando padrão do Puppeteer.");
+  console.log("[WARN] Chromium não encontrado. Usando padrão do Puppeteer.");
   return undefined;
 };
 
-const chromiumPath = process.env.NODE_ENV === "production" ? detectorChromium() : undefined;
+// =====================================
+// CONFIGURAÇÃO DO CLIENTE WHATSAPP
+// =====================================
+const getPuppeteerArgs = () => [
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-dev-shm-usage",
+  "--disable-gpu",
+  "--disable-web-resources",
+  "--disable-features=IsolateOrigins,site-per-process",
+  "--memory-pressure-off",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-background-timer-throttling",
+  "--disable-breakpad",
+  "--disable-client-side-phishing-detection",
+  "--disable-component-extensions-with-background-pages",
+  "--disable-hang-monitor",
+  "--disable-popup-blocking",
+  "--disable-prompt-on-repost",
+  "--disable-sync",
+  "--enable-automation",
+  "--no-service-autorun",
+];
 
-const client = new Client({
-  authStrategy: new LocalAuth(),
+const createClientConfig = () => ({
+  authStrategy: new LocalAuth({ clientId: 'bot' }),
   puppeteer: {
     headless: true,
-    args: [
-      ...puppeteerArgs,
-      "--memory-pressure-off",
-      "--disable-backgrounding-occluded-windows",
-      "--disable-background-timer-throttling",
-      "--disable-breakpad",
-      "--disable-client-side-phishing-detection",
-      "--disable-component-extensions-with-background-pages",
-      "--disable-default-apps",
-      "--disable-hang-monitor",
-      "--disable-popup-blocking",
-      "--disable-prompt-on-repost",
-      "--disable-sync",
-      "--enable-automation",
-      "--no-service-autorun",
-    ],
-    executablePath: chromiumPath,
+    args: getPuppeteerArgs(),
+    executablePath: getChromiumPath(),
   },
   webVersion: "2.2412.54",
+  restartOnCrash: true,
 });
+
+let client = new Client(createClientConfig());
 
 // =====================================
-// EVENTOS DO WHATSAPP
+// VARIÁVEIS DE CONTROLE
 // =====================================
+let msgListenerRegistered = false;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const INITIAL_RECONNECT_DELAY = 5000;
 
-client.on("loading_screen", (percent, message) => {
-  statusMessage = `Carregando: ${percent}% - ${message}`;
-  console.log(`[LOADING] ${statusMessage} (timestamp: ${new Date().toLocaleTimeString()})`);
-});
+// =====================================
+// ESTRUTURAS DE DADOS
+// =====================================
+const userMenuStates = new Map(); // Usuários que já viram o menu
+const processedMessages = new Map(); // Mensagens processadas (debounce)
+const DEBOUNCE_TIMEOUT = 2000;
+const MAX_CACHED_MESSAGES = 20;
+const MAX_USERS_MENU = 100;
+const USER_MENU_EXPIRY = 3600000;
+const MEMORY_RESTART_THRESHOLD = 200;
 
-client.on("qr", (qr) => {
-  lastQr = qr;
-  statusMessage = "Aguardando leitura do QR Code";
-  console.log("\n📲 ========================================");
-  console.log("📲 QR Code gerado! Escaneie com seu celular.");
-  console.log("📲 Aceda à rota /qr no navegador para digitalizá-lo.");
-  console.log("📲 Timestamp: " + new Date().toLocaleString());
-  console.log("📲 ========================================\n");
-  qrcode.generate(qr, { small: true });
-});
+// =====================================
+// FUNÇÕES UTILITÁRIAS
+// =====================================
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-client.on("ready", () => {
-  lastQr = null;
-  statusMessage = "Conectado e pronto!";
-  console.log("✅ Tudo certo! WhatsApp conectado.");
-  console.log("✅ Timestamp: " + new Date().toLocaleString());
-  console.log("✅ Cliente info:", client.info);
+const cleanupSession = async (force = false) => {
+  console.log("[CLEANUP] Limpando sessão anterior...");
   
-  // REGISTRAR LISTENER DE MENSAGENS APENAS QUANDO READY
-  if (!mensagenListenerRegistrado) {
-    console.log("✅ Registrando listener de mensagens...");
-    registrarListenerMensagens();
+  // Remover auth
+  try {
+    if (fs.existsSync(AUTH_DIR)) {
+      fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+      console.log("[CLEANUP] ✅ Autenticação removida");
+    }
+  } catch (err) {
+    console.warn("[CLEANUP] Erro ao remover auth:", err.message);
   }
-});
 
-client.on("auth_failure", (msg) => {
-  statusMessage = "Falha na autenticação. Reiniciando...";
-  console.error("❌ Falha na autenticação:", msg);
-  console.error("[AUTH_FAILURE] Timestamp:", new Date().toLocaleString());
-  mensagenListenerRegistrado = false;
-});
+  // Remover cache
+  try {
+    if (fs.existsSync(CACHE_DIR)) {
+      fs.rmSync(CACHE_DIR, { recursive: true, force: true });
+      console.log("[CLEANUP] ✅ Cache removido");
+    }
+  } catch (err) {
+    console.warn("[CLEANUP] Erro ao remover cache:", err.message);
+  }
 
-client.on("authenticated", () => {
-  statusMessage = "Autenticado - iniciando sessão";
-  console.log("✅ Autenticado com sucesso!");
-  console.log("✅ Timestamp: " + new Date().toLocaleString());
-});
+  if (force) {
+    console.log("[CLEANUP] Limpeza completa concluída");
+  }
+};
 
-client.on("disconnected", (reason) => {
-  statusMessage = "Desconectado. Aguardando novo QR Code...";
-  console.log("⚠️ Desconectado:", reason);
-  console.log("⚠️ Timestamp: " + new Date().toLocaleString());
-  mensagenListenerRegistrado = false; // Reset listener quando desconectar
-});
+const destroyClient = async () => {
+  try {
+    if (client && client.pupBrowser) {
+      await client.destroy();
+      console.log("[INFO] Cliente destruído com sucesso");
+    }
+  } catch (err) {
+    console.warn("[INFO] Erro ao destruir cliente:", err.message);
+  }
+};
+
+const recreateClient = () => {
+  client = new Client(createClientConfig());
+  setupEventHandlers();
+};
+
+// =====================================
+// CONFIGURAÇÃO DE EVENTOS
+// =====================================
+const setupEventHandlers = () => {
+  client.on("loading_screen", (percent, message) => {
+    statusMessage = `Carregando: ${percent}% - ${message}`;
+    console.log(`[LOADING] ${statusMessage}`);
+  });
+
+  client.on("qr", (qr) => {
+    lastQr = qr;
+    statusMessage = "Aguardando leitura do QR Code";
+    console.log("📲 QR Code gerado! Aceda a http://localhost:3000/qr para escanear");
+    qrcode.generate(qr, { small: true });
+  });
+
+  client.on("authenticated", () => {
+    statusMessage = "Autenticado com sucesso";
+    console.log("✅ Autenticado com sucesso!");
+  });
+
+  client.on("ready", () => {
+    lastQr = null;
+    isConnected = true;
+    statusMessage = "Conectado e pronto!";
+    reconnectAttempts = 0;
+    console.log("✅ Cliente pronto! Aguardando mensagens...");
+    
+    if (!msgListenerRegistered) {
+      registerMessageListener();
+    }
+  });
+
+  client.on("message", handleMessage);
+
+  client.on("disconnect", (reason) => {
+    isConnected = false;
+    statusMessage = `Desconectado: ${reason}`;
+    msgListenerRegistered = false;
+    console.log("⚠️ Desconectado:", reason);
+    attemptReconnect();
+  });
+
+  client.on("auth_failure", (msg) => {
+    isConnected = false;
+    statusMessage = "Falha na autenticação";
+    msgListenerRegistered = false;
+    console.error("❌ Falha na autenticação:", msg);
+    reconnectAttempts = 0;
+  });
+
+  client.on("error", (err) => {
+    console.error("❌ Erro no cliente:", err.message);
+  });
+};
 
 // =====================================
 // ROTAS DO SERVIDOR WEB
 // =====================================
-
 app.get('/qr', (req, res) => {
-  if (lastQr) {
-    qrcodeImage.toDataURL(lastQr, (err, url) => {
-      if (err) {
-        res.status(500).send("Erro ao gerar imagem do QR Code");
-      } else {
-        res.send(`
-          <html>
-            <head><title>QR Code WhatsApp</title></head>
-            <body style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; background-color: #f0f2f5;">
-              <div style="background:white; padding: 40px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align:center;">
-                <h2 style="color: #128c7e;">Digitalize o QR Code abaixo:</h2>
-                <img src="${url}" style="border: 1px solid #ddd; margin: 20px 0;" />
-                <p style="color: #666;">Status atual: <strong>${statusMessage}</strong></p>
-                <p style="font-size: 0.8em; color: #999;">A página irá atualizar automaticamente a cada 30 segundos.</p>
-              </div>
-              <script>setTimeout(() => { location.reload(); }, 30000);</script>
-            </body>
-          </html>
-        `);
-      }
-    });
-  } else {
-    res.send(`
+  if (!lastQr) {
+    return res.send(`
       <html>
-        <body style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif;">
+        <body style="display:flex; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; flex-direction:column;">
           <h2>${statusMessage}</h2>
-          <p>Se o bot estiver "Iniciando", aguarde até 2 minutos e atualize esta página.</p>
-          <button onclick="location.reload()" style="padding: 10px 20px; cursor:pointer;">Atualizar Status</button>
+          <p>Se o bot estiver "Iniciando", aguarde até 2 minutos e recarregue a página.</p>
+          <button onclick="location.reload()" style="padding:10px 20px; cursor:pointer; font-size:16px;">🔄 Recarregar</button>
         </body>
       </html>
     `);
   }
+
+  qrcodeImage.toDataURL(lastQr, (err, url) => {
+    if (err) {
+      return res.status(500).send("Erro ao gerar imagem do QR Code");
+    }
+
+    res.send(`
+      <html>
+        <head><title>QR Code WhatsApp</title></head>
+        <body style="display:flex; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; background-color:#f0f2f5;">
+          <div style="background:white; padding:40px; border-radius:20px; box-shadow:0 4px 15px rgba(0,0,0,0.1); text-align:center;">
+            <h2 style="color:#128c7e;">Digitalize o QR Code:</h2>
+            <img src="${url}" style="border:1px solid #ddd; margin:20px 0; width:300px; height:300px;" />
+            <p style="color:#666;">Status: <strong>${statusMessage}</strong></p>
+            <p style="font-size:0.9em; color:#999;">Atualizando a cada 30 segundos...</p>
+          </div>
+          <script>setTimeout(() => location.reload(), 30000);</script>
+        </body>
+      </html>
+    `);
+  });
 });
 
 app.get('/', (req, res) => {
-  res.send(`WhatsApp bot status: ${statusMessage}. Visit /qr to authenticate.`);
+  res.json({
+    bot: "WhatsApp Bot - Juizado Especial",
+    status: statusMessage,
+    connected: isConnected,
+    qrUrl: "/qr",
+    debugUrl: "/debug"
+  });
+});
+
+app.get('/health', (req, res) => {
+  if (isConnected) {
+    res.sendStatus(200);
+  } else {
+    res.status(503).json({ status: "Not ready", message: statusMessage });
+  }
 });
 
 app.get('/debug', (req, res) => {
-  const debug = {
+  const mem = process.memoryUsage();
+  res.json({
     statusMessage,
-    connectedInfo: client.info || null,
-    hasQr: !!lastQr,
-    listenerRegistrado: mensagenListenerRegistrado,
-    timestamp: new Date().toISOString(),
+    connected: isConnected,
     uptime: Math.round(process.uptime()) + 's',
     memory: {
-      heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
-      heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + 'MB',
-      rss: Math.round(process.memoryUsage().rss / 1024 / 1024) + 'MB'
+      heapUsed: Math.round(mem.heapUsed / 1024 / 1024) + 'MB',
+      heapTotal: Math.round(mem.heapTotal / 1024 / 1024) + 'MB',
+      rss: Math.round(mem.rss / 1024 / 1024) + 'MB'
     },
-    users: usuariosComMenu.size,
-    cache: mensagensProcessadas.size,
-    listeners: {
-      message: client.listeners('message').length,
-      ready: client.listeners('ready').length,
-      qr: client.listeners('qr').length,
-      authenticated: client.listeners('authenticated').length,
-      disconnected: client.listeners('disconnected').length
-    },
-    clientState: {
-      pupPage: !!client.pupPage,
-      pupBrowser: !!client.pupBrowser,
-      isReady: !!client.isReady
-    }
-  };
-  res.json(debug);
+    users: userMenuStates.size,
+    cache: processedMessages.size,
+    reconnectAttempts
+  });
+});
+
+app.get('/status', (req, res) => {
+  res.json({
+    status: statusMessage,
+    connected: isConnected,
+    hasQr: !!lastQr,
+    timestamp: new Date().toISOString()
+  });
 });
 
 app.get('/reset', (req, res) => {
   console.log("[RESET] Reinicializando cliente manualmente...");
   statusMessage = "Reinicializando...";
   
-  usuariosComMenu.clear();
-  mensagensProcessadas.clear();
+  userMenuStates.clear();
+  processedMessages.clear();
+  msgListenerRegistered = false;
   
-  client.destroy().then(() => {
-    setTimeout(() => inicializarComRetentativa(), 2000);
+  destroyClient().then(async () => {
+    await delay(1000);
+    await cleanupSession();
+    await delay(1000);
+    recreateClient();
+    initializeClient();
     res.json({ status: "Reinicializando. Acesse /qr em 30 segundos." });
   }).catch(err => {
     res.status(500).json({ error: err.message });
   });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor de monitorização rodando na porta ${PORT}`);
+// Tratamento de erro ao iniciar servidor
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[HTTP] Servidor rodando em http://0.0.0.0:${PORT}`);
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Porta ${PORT} já está em uso. Use a variável PORT para mudar.`);
+    process.exit(1);
+  } else {
+    console.error('❌ Erro no servidor:', err.message);
+  }
 });
 
 // =====================================
-// LIMPEZA DE SESSÕES ANTERIORES
+// RECONEXÃO AUTOMÁTICA
 // =====================================
+const attemptReconnect = async () => {
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    statusMessage = "Falha permanente de conexão. Aguardando manual...";
+    console.error("❌ Máximo de tentativas de reconexão excedido");
+    return;
+  }
 
-const limparSessaoAnterior = () => {
-  console.log("[INFO] Limpando sessões anteriores...");
+  reconnectAttempts++;
+  const waitTime = INITIAL_RECONNECT_DELAY * Math.pow(2, reconnectAttempts - 1);
+  
+  console.log(`[RECONNECT] Tentativa ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}. Aguardando ${waitTime}ms...`);
+  statusMessage = `Reconectando... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`;
+  
+  await delay(waitTime);
   
   try {
-    console.log("[INFO] Removendo .wwebjs_auth...");
-    fs.rmSync(authDir, { recursive: true, force: true });
-    console.log("[INFO] ✅ Autenticação anterior removida");
+    await destroyClient();
+    await cleanupSession();
+    await delay(1000);
+    recreateClient();
+    await initializeClient();
   } catch (err) {
-    console.log("[WARN] Erro ao limpar autenticação:", err.message);
+    console.error("[RECONNECT] Erro na reconexão:", err.message);
+    await attemptReconnect();
   }
-
-  try {
-    const cacheDir = path.join(__dirname, ".wwebjs_cache");
-    if (fs.existsSync(cacheDir)) {
-      console.log("[INFO] Removendo .wwebjs_cache...");
-      fs.rmSync(cacheDir, { recursive: true, force: true });
-      console.log("[INFO] ✅ Cache anterior removido");
-    } else {
-      console.log("[INFO] .wwebjs_cache não existe");
-    }
-  } catch (err) {
-    console.log("[WARN] Erro ao limpar cache:", err.message);
-  }
-
-  console.log("[INFO] ✅ Limpeza de sessão concluída");
 };
 
-// Função para inicializar com retentativa
-async function inicializarComRetentativa(tentativa = 1) {
-  const maxTentativas = 5; // Aumentado para 5 tentativas
-  
+// =====================================
+// INICIALIZAÇÃO DO CLIENTE
+// =====================================
+const initializeClient = async () => {
   try {
-    console.log(`[INIT] Iniciando cliente (tentativa ${tentativa}/${maxTentativas})...`);
-    console.log(`[INIT] Timestamp: ${new Date().toLocaleString()}`);
+    console.log("[INIT] Inicializando cliente WhatsApp...");
+    statusMessage = "Aguardando autenticação...";
     
-    // Listener para monitorar se reached "ready"
-    let readyEmitido = false;
-    let authenticatedEmitido = false;
+    await client.initialize();
     
-    const readyListener = () => {
-      readyEmitido = true;
-      console.log("[INIT] ✅ Evento 'ready' foi emitido!");
-    };
-    
-    const authenticatedListener = () => {
-      authenticatedEmitido = true;
-      console.log("[INIT] ✅ Evento 'authenticated' foi emitido!");
-    };
-    
-    client.once("ready", readyListener);
-    client.once("authenticated", authenticatedListener);
-    
-    // TIMEOUT AUMENTADO PARA 120 SEGUNDOS
-    const initTimeout = new Promise((_, reject) => {
-      const timer = setTimeout(() => {
-        client.removeListener("ready", readyListener);
-        client.removeListener("authenticated", authenticatedListener);
-        console.error("[INIT] ⏰ TIMEOUT DISPARADO!");
-        console.error(`[INIT] Ready emitido: ${readyEmitido}, Authenticated: ${authenticatedEmitido}`);
-        reject(new Error("Timeout na inicialização: Cliente não iniciou em 120s"));
-      }, 120000);
-    });
-    
-    const initPromise = client.initialize();
-    
-    console.log("[INIT] Aguardando inicialização do cliente (máx 120s)...");
-    await Promise.race([initPromise, initTimeout]);
-    
-    console.log(`[INIT] Inicialização completada. Ready: ${readyEmitido}, Authenticated: ${authenticatedEmitido}`);
-    
+    console.log("[INIT] ✅ Cliente inicializado com sucesso!");
   } catch (err) {
-    console.error(`❌ Erro na inicialização (tentativa ${tentativa}/${maxTentativas}):`, err.message);
-    console.error(`[STACK]`, err.stack);
-    
-    if (tentativa < maxTentativas) {
-      const delaySegundos = 10 * tentativa; // Aumentar delay a cada tentativa
-      console.log(`[INFO] Aguardando ${delaySegundos}s antes de retentativa ${tentativa + 1}...`);
-      statusMessage = `Tentando reconectar... (${tentativa}/${maxTentativas})`;
-      
-      // Limpar processo antigo do Puppeteer
-      try {
-        console.log("[INFO] Destruindo cliente anterior...");
-        await client.destroy();
-        console.log("[INFO] Cliente destruído com sucesso");
-      } catch (e) {
-        console.log("[WARN] Erro ao destruir cliente anterior:", e.message);
-      }
-      
-      // SEMPRE limpar sessão em caso de erro
-      console.log("[INFO] Limpando sessão...");
-      limparSessaoAnterior();
-      
-      await new Promise(resolve => setTimeout(resolve, delaySegundos * 1000));
-      await inicializarComRetentativa(tentativa + 1);
-    } else {
-      statusMessage = `Erro permanente ao inicializar: ${err.message}`;
-      console.error("❌ Falha após todas as retentativas. Sistema em standby...");
-      
-      // Tentar limpeza completa após falhas
-      console.log("[INFO] Executando limpeza completa...");
-      limparSessaoAnterior();
-    }
+    console.error("[INIT] ❌ Erro na inicialização:", err.message);
+    await attemptReconnect();
   }
-}
+};
 
-// Executar limpeza antes de inicializar
-limparSessaoAnterior();
-
-// Aguardar 2 segundos para o sistema de arquivos processar a limpeza
-setTimeout(() => {
-  console.log("\n🚀 INICIANDO BOT WHATSAPP...\n");
-  console.log("[INFO] Aguardando conexão com WhatsApp...");
-  console.log("[INFO] Quando o QR Code for gerado, ele será exibido aqui e também em http://localhost:3000/qr\n");
-  console.log("[⏰] Você tem 5 minutos para escanear o QR Code");
-  console.log("[⏰] Após esse período, o bot entrará em modo de monitoramento\n");
-
-  // Inicializar cliente
-  inicializarComRetentativa();
-}, 2000);
+setupEventHandlers();
 
 // =====================================
 // EXCEPTION HANDLERS
 // =====================================
-
 process.on("uncaughtException", (err) => {
-  console.error("❌ Erro não capturado:", err.message);
+  console.error("❌ Exceção não capturada:", err.message);
+  console.error(err.stack);
 });
 
-process.on("unhandledRejection", (err) => {
-  console.error("❌ Promise rejeitada:", err);
+process.on("unhandledRejection", (reason) => {
+  console.error("❌ Promise rejeitada:", reason);
 });
 
 // =====================================
-// FUNIL DE MENSAGENS
+// MONITORAMENTO DE MEMÓRIA
 // =====================================
-
-// Rastrear usuários que já viram o menu (com expiração)
-const usuariosComMenu = new Map(); // Mudado de Set para Map com timestamps
-
-// Flag para evitar registrar múltiplos listeners
-let mensagenListenerRegistrado = false;
-
-// Debouncing: armazenar ID e timestamp de mensagens processadas (com limite CRÍTICO)
-const mensagensProcessadas = new Map();
-const DEBOUNCE_TIMEOUT = 2000; // 2 segundos
-const MAX_CACHED_MESSAGES = 20; // REDUZIDO: apenas 20 mensagens
-const MAX_USUARIOS_MENU = 100; // REDUZIDO: apenas 100 usuários
-const USUARIO_MENU_EXPIRY = 3600000; // REDUZIDO: apenas 1 hora
-const MEMORY_RESTART_THRESHOLD = 200; // Se RSS > 200MB, fazer restart automático
-
-// Função para limpar usuário antigo do menu
-const limparUsuarioMenuAntigoSeNecessario = () => {
-  if (usuariosComMenu.size > MAX_USUARIOS_MENU) {
-    const agora = Date.now();
-    let removidos = 0;
-    
-    // Remover usuários mais antigos
-    for (const [usuario, timestamp] of usuariosComMenu.entries()) {
-      if (agora - timestamp > USUARIO_MENU_EXPIRY) {
-        usuariosComMenu.delete(usuario);
-        removidos++;
-      }
-      if (usuariosComMenu.size <= MAX_USUARIOS_MENU * 0.8) break; // Parar quando atingir 80%
-    }
-    
-    if (removidos > 0) {
-      console.log(`[GC] Removidos ${removidos} usuários antigos do menu (total: ${usuariosComMenu.size})`);
-    }
-  }
-};
-
-// Monitoramento CRÍTICO de memória (a cada 2 segundos) com restart automático - AUMENTADO DE 5s PARA 2s
-let restartEmProgresso = false;
-let inicioExecucao = Date.now();
-const PERIODO_GRACA_RESTART = 300000; // 5 minutos de graça sem restart (tempo para QR)
-
 setInterval(async () => {
-  const agora = Date.now();
-  const tempoExecucao = agora - inicioExecucao;
-  let removidas = 0;
-  
-  // Limpar mensagens MUITO agressivamente (após 2 segundos)
-  for (const [key, timestamp] of mensagensProcessadas.entries()) {
-    if (agora - timestamp > 2000) {
-      mensagensProcessadas.delete(key);
-      removidas++;
-    }
-  }
-  
-  // Se cache ficou muito grande, limpar TUDO
-  if (mensagensProcessadas.size > MAX_CACHED_MESSAGES) {
-    const antes = mensagensProcessadas.size;
-    mensagensProcessadas.clear();
-    console.log(`[GC] LIMPEZA TOTAL: ${antes} mensagens removidas`);
-    removidas = antes;
-  }
-  
-  // Limpar usuários do menu agressivamente
-  limparUsuarioMenuAntigoSeNecessario();
-  
-  // Forçar garbage collection
-  if (global.gc) {
-    global.gc();
-  }
-  
-  const memUsage = process.memoryUsage();
-  const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
-  const heapTotalMB = Math.round(memUsage.heapTotal / 1024 / 1024);
-  const externalMB = Math.round(memUsage.external / 1024 / 1024);
-  const rssUsedMB = Math.round(memUsage.rss / 1024 / 1024);
-  const heapPercent = Math.round((memUsage.heapUsed / memUsage.heapTotal) * 100);
-  
-  console.log(`[GC] RSS: ${rssUsedMB}MB | Heap: ${heapUsedMB}MB/${heapTotalMB}MB (${heapPercent}%) | Ext: ${externalMB}MB | Cache: ${mensagensProcessadas.size} | Users: ${usuariosComMenu.size}`);
-  
-  // CRÍTICO: Se RSS > MEMORY_RESTART_THRESHOLD, fazer restart automático
-  // MAS: Nunca fazer restart durante o período inicial de autenticação (5 min)
-  if (rssUsedMB > MEMORY_RESTART_THRESHOLD && !restartEmProgresso && tempoExecucao > PERIODO_GRACA_RESTART) {
-    console.error(`\n❌ MEMÓRIA CRÍTICA: ${rssUsedMB}MB > ${MEMORY_RESTART_THRESHOLD}MB`);
-    console.error(`🔄 INICIANDO RESTART AUTOMÁTICO...\n`);
-    restartEmProgresso = true;
-    
-    try {
-      // Limpar tudo
-      mensagensProcessadas.clear();
-      usuariosComMenu.clear();
-      
-      // Destruir cliente
-      try {
-        await client.destroy();
-      } catch (e) {
-        console.log("[WARN] Erro ao destruir cliente:", e.message);
-      }
-      
-      // Aguardar 3 segundos
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Reinicializar
-      console.log("[INFO] Reinicializando cliente WhatsApp...");
-      await inicializarComRetentativa();
-      inicioExecucao = Date.now(); // Reset do período de graça após restart
-      restartEmProgresso = false;
-    } catch (e) {
-      console.error("[ERROR] Erro no restart:", e.message);
-      restartEmProgresso = false;
-    }
-  } else if (tempoExecucao <= PERIODO_GRACA_RESTART) {
-    const tempoRestante = Math.round((PERIODO_GRACA_RESTART - tempoExecucao) / 1000);
-    console.log(`[INFO] Período de graça (sem restart): ${tempoRestante}s restantes`);
-  }
-  
-  // AVISO: Se heap > 80%
-  if (heapPercent > 80) {
-    console.warn(`⚠️ AVISO: Heap em ${heapPercent}%`);
-    mensagensProcessadas.clear();
-  }
-}, 2000); // AUMENTADO DE 5s PARA 2s - LIMPEZA MAIS FREQUENTE
+  const mem = process.memoryUsage();
+  const rss = Math.round(mem.rss / 1024 / 1024);
+  const heap = Math.round(mem.heapUsed / 1024 / 1024);
+  const heapPercent = Math.round((mem.heapUsed / mem.heapTotal) * 100);
 
-// Definir instrução de atendimento contextual
-const getInstrucaoAtendimento = (ehFinalDeSemana, foraDoHorario) => {
-  if (ehFinalDeSemana || foraDoHorario) {
-    return " Para suporte adicional, entre em contato no próximo dia útil.";
+  // Limpeza de cache
+  const agora = Date.now();
+  let cleaned = 0;
+  for (const [key, ts] of processedMessages.entries()) {
+    if (agora - ts > DEBOUNCE_TIMEOUT) {
+      processedMessages.delete(key);
+      cleaned++;
+    }
   }
-  return " Para suporte adicional, digite 4.";
+
+  if (processedMessages.size > MAX_CACHED_MESSAGES) {
+    const antes = processedMessages.size;
+    processedMessages.clear();
+    cleaned = antes;
+  }
+
+  console.log(`[GC] RSS: ${rss}MB | Heap: ${heap}MB (${heapPercent}%) | Cache: ${processedMessages.size} | Users: ${userMenuStates.size}`);
+
+  // Restart automático se memória crítica
+  if (rss > MEMORY_RESTART_THRESHOLD && isConnected) {
+    console.error(`❌ MEMÓRIA CRÍTICA: ${rss}MB! Reiniciando...`);
+    isConnected = false;
+    await destroyClient();
+    await cleanupSession();
+    await delay(2000);
+    recreateClient();
+    initializeClient();
+  }
+
+  if (heapPercent > 85) {
+    console.warn(`⚠️ Heap em ${heapPercent}%`);
+    processedMessages.clear();
+  }
+}, 5000);
+
+// =====================================
+// LIMPEZA DE SESSÃO PERIÓDICA  
+// =====================================
+setInterval(() => {
+  const agora = Date.now();
+  let removed = 0;
+
+  for (const [user, ts] of userMenuStates.entries()) {
+    if (agora - ts > USER_MENU_EXPIRY) {
+      userMenuStates.delete(user);
+      removed++;
+    }
+  }
+
+  if (removed > 0) {
+    console.log(`[GC] Removidos ${removed} usuários antigos do Menu`);
+  }
+}, 60000);
+
+// =====================================
+// PROCESSAMENTO DE MENSAGENS
+// =====================================
+const isTimeInBusinessHours = () => {
+  const now = new Date();
+  const hour = now.getHours();
+  const day = now.getDay();
+  
+  const isWeekend = day === 0 || day === 6;
+  const isOutOfHours = hour < 8 || hour >= 14;
+  
+  return !isWeekend && !isOutOfHours;
 };
 
-// FUNÇÃO SEPARADA PARA REGISTRAR LISTENER
-function registrarListenerMensagens() {
-  if (mensagenListenerRegistrado) {
-    console.log("[LISTENER] Listener já foi registrado");
+const getSalutation = () => {
+  const hour = new Date().getHours();
+  
+  if (hour >= 5 && hour < 12) return "Bom dia";
+  if (hour >= 12 && hour < 18) return "Boa tarde";
+  return "Boa noite";
+};
+
+const showMenu = async (from, isForced = false) => {
+  if (!isForced && userMenuStates.has(from)) {
+    console.log(`[MENU] Menu já mostrado para ${from}`);
     return;
   }
-  
-  mensagenListenerRegistrado = true;
-  console.log("[LISTENER] Registrando listener de mensagens...");
 
-  client.on("message", async (msg) => {
-    // Log de todas as mensagens recebidas
-    console.log(`[MSG RECEBIDA] De: ${msg.from}, Timestamp: ${msg.timestamp}, Corpo: "${msg.body}"`);
+  try {
+    const inBusinessHours = isTimeInBusinessHours();
+    const salutation = getSalutation();
     
-    // Verificar se a mensagem já foi processada recentemente (debouncing)
-    const msgKey = `${msg.from}:${msg.timestamp}`;
-    const agoraMs = Date.now();
-    const ultimaVez = mensagensProcessadas.get(msgKey);
+    if (!inBusinessHours) {
+      await client.sendMessage(from,
+        `${salutation}! 👋\n\n` +
+        `Você entrou em contato fora do horário de atendimento (Seg-Sex 08:00-14:00).\n\n` +
+        `Sua mensagem será respondida pelo próximo dia útil.\n\n` +
+        `Enquanto isso, utilize nosso menu:`,
+        { parseVcard: false }
+      );
+      
+      await delay(1500);
+    }
+
+    const menu = inBusinessHours 
+      ? `${salutation}! 👋\n\nEste é o atendimento automático do *4º Juizado Especial*\n\nComo podemos ajudar?\n\n`
+      : `*MENU AUTOMÁTICO:*\n\n`;
+
+    const message = 
+      menu +
+      `1️⃣ - Consultar andamento processual\n` +
+      `2️⃣ - Orientações sobre audiências\n` +
+      `3️⃣ - Consultar execução/alvará\n` +
+      `4️⃣ - Falar com atendente\n\n` +
+      `_Digite apenas o número._`;
+
+    await client.sendMessage(from, message, { parseVcard: false });
     
-    if (ultimaVez && (agoraMs - ultimaVez) < DEBOUNCE_TIMEOUT) {
-      console.log(`[DEBOUNCE] Ignorando mensagem duplicada de ${msg.from}`);
+    userMenuStates.set(from, Date.now());
+    console.log(`[MENU] ✅ Menu enviado para ${from}`);
+  } catch (err) {
+    console.error(`[MENU] ❌ Erro ao enviar menu para ${from}:`, err.message);
+  }
+};
+
+const handleMessageOption = async (option, from, isBusinessHours) => {
+  const inHours = isBusinessHours || isTimeInBusinessHours();
+  const nextHours = !inHours ? " Responderemos no próximo dia útil." : "";
+  
+  const responses = {
+    "1": "🔍 Acesse o portal do PJe ou nos informe o número do processo." + nextHours,
+    "2": "⚖️ As audiências são virtuais. O link será disponibilizado nos autos." + nextHours,
+    "3": "💰 Informe o número do processo para verificar status de alvarás." + nextHours,
+    "4": inHours 
+      ? "⏳ Encaminhando para um atendente. Por favor, aguarde."
+      : "⏳ Não há atendentes disponíveis. Responderemos no próximo dia útil."
+  };
+
+  const response = responses[option] || "Opção inválida. Digite 1, 2, 3 ou 4.";
+  
+  try {
+    await delay(1500);
+    await client.sendMessage(from, response + "\n\nDigite *MENU* para voltar.", { parseVcard: false });
+  } catch (err) {
+    console.error(`[MSG] ❌ Erro ao responder opção ${option}:`, err.message);
+  }
+};
+
+async function handleMessage(msg) {
+  const from = msg.from;
+  const text = msg.body ? msg.body.trim().toLowerCase() : "";
+
+  try {
+    // Ignorar grupos
+    const chat = await msg.getChat();
+    if (chat.isGroup) {
+      console.log(`[MSG] Ignorando mensagem de grupo`);
       return;
     }
+
+    // Debouncing
+    const msgKey = `${from}:${msg.timestamp}`;
+    const now = Date.now();
     
-    // Registrar que processamos esta mensagem
-    mensagensProcessadas.set(msgKey, agoraMs);
-    
-    try {
-      console.log(`[PROCESSANDO] Verificando se é mensagem privada: ${msg.from}`);
-      if (!msg.from || msg.from.endsWith("@g.us")) {
-        console.log(`[IGNORANDO] Mensagem de grupo ou origem inválida`);
+    if (processedMessages.has(msgKey)) {
+      const lastTime = processedMessages.get(msgKey);
+      if (now - lastTime < DEBOUNCE_TIMEOUT) {
+        console.log(`[MSG] Ignorando duplicata: ${from}`);
         return;
       }
-
-      const chat = await msg.getChat();
-      console.log(`[CHAT] Chat obtido - IsGroup: ${chat.isGroup}`);
-      if (chat.isGroup) {
-        console.log(`[IGNORANDO] É um grupo`);
-        return;
-      }
-
-      const agora = new Date();
-      const horaAtual = agora.getHours();
-      const diaSemana = agora.getDay(); // 0: Domingo, 6: Sábado
-
-      const ehFinalDeSemana = (diaSemana === 0 || diaSemana === 6);
-      const foraDoHorario = (horaAtual < 8 || horaAtual >= 14);
-
-      const texto = msg.body ? msg.body.trim().toLowerCase() : "";
-      const voltarMenu = "\n\nDigite *MENU* a qualquer momento para voltar às opções iniciais.";
-
-      const delay = (ms) => new Promise((res) => setTimeout(res, ms));
-      const typing = async (tempo = 2000) => {
-        try {
-          await chat.clearState();
-          await delay(tempo);
-        } catch (e) {
-          console.log("[INFO] Estado do chat não disponível, aguardando...");
-          await delay(tempo);
-        }
-      };
-
-      // Função para enviar menu
-      const enviarMenu = async (forcado = false) => {
-        try {
-          // Verificar novamente se o usuário já tem menu registrado (double-check)
-          // MAS: Se for ativado por palavra-chave (forcado=true), ignora este check
-          if (!forcado && usuariosComMenu.has(msg.from)) {
-            console.log(`[INFO] Menu já foi mostrado para ${msg.from}. Ignorando.`);
-            return;
-          }
-          
-          console.log(`[MENU] Preparando para enviar menu (forcado: ${forcado})...`);
-          await typing(3000);
-          console.log(`[MENU] Typing completo, gerando conteúdo...`);
-
-          let saudacao = "Olá";
-          if (horaAtual >= 5 && horaAtual < 12) saudacao = "Bom dia";
-          else if (horaAtual >= 12 && horaAtual < 18) saudacao = "Boa tarde";
-          else saudacao = "Boa noite";
-
-          if (ehFinalDeSemana || foraDoHorario) {
-            const avisoForaHorario = 
-              `${saudacao}! 👋\n\n` +
-              `Você entrou em contato com o *4º Juizado Especial da Fazenda Pública* fora do nosso horário de atendimento (08:00 às 14:00).\n\n` +
-              `*Informamos que sua mensagem será visualizada e respondida por um de nossos servidores apenas no próximo dia útil.*\n\n` +
-              `No entanto, você pode utilizar nosso menu automático abaixo para tirar dúvidas agora:`;
-            
-            console.log(`[MENU] Enviando aviso fora de horário...`);
-            await client.sendMessage(msg.from, avisoForaHorario);
-            await delay(1500);
-          }
-
-          const menuMsg = 
-            (ehFinalDeSemana || foraDoHorario ? `*MENU AUTOMÁTICO:*\n\n` : `${saudacao}! 👋\n\nEste é o atendimento automático do *4º Juizado Especial da Fazenda Pública*.\n\n`) +
-            `Como podemos ajudar? Digite o número da opção desejada:\n\n` +
-            `1️⃣ - Consultar andamento processual\n` +
-            `2️⃣ - Orientações sobre audiências\n` +
-            `3️⃣ - Consultar andamento da execução/alvará\n\n` +
-            `_Por favor, responda apenas com o número._`;
-
-          console.log(`[MENU] Enviando menu para ${msg.from}...`);
-          await client.sendMessage(msg.from, menuMsg);
-          usuariosComMenu.set(msg.from, Date.now()); // Armazenar timestamp ao invés de apenas marcar
-          console.log(`[INFO] ✅ Menu enviado com sucesso para ${msg.from}`);
-          return;
-        } catch (e) {
-          console.error(`[ERRO] Erro ao enviar menu para ${msg.from}:`, e.message);
-          throw e;
-        }
-      };
-
-      // Palavras-chave que ativam o menu
-      const ativaMenu = /^(menu|oi|olá|ola|bom dia|boa tarde|boa noite|oi tudo bem|olá tudo bem|opa|e aí|eae|opa tudo bem)$/i.test(texto);
-
-      // Se for palavra-chave, mostrar menu (forcado=true)
-      if (ativaMenu) {
-        await enviarMenu(true);
-        return;
-      }
-      
-      // Se for primeira mensagem, mostrar menu (forcado=false, aplica double-check)
-      if (!usuariosComMenu.has(msg.from)) {
-        await enviarMenu(false);
-        return;
-      }
-
-      // 2. TRATAMENTO DAS OPÇÕES DO MENU
-      const instrucaoAtendimento = getInstrucaoAtendimento(ehFinalDeSemana, foraDoHorario);
-      
-      switch (texto) {
-        case "1":
-          console.log(`[OPCAO 1] Consulta de andamento processual de ${msg.from}`);
-          await typing();
-          await client.sendMessage(msg.from, "🔍 Para consultar o andamento, pode aceder ao portal do PJe ou *informar os dados abaixo para verificação* (nome e número do processo)." + instrucaoAtendimento + voltarMenu);
-          break;
-        case "2":
-          console.log(`[OPCAO 2] Orientações sobre audiências de ${msg.from}`);
-          await typing();
-          await client.sendMessage(msg.from, "⚖️ As audiências são realizadas preferencialmente de forma virtual. Caso tenha uma audiência agendada, o link será disponibilizado nos autos do processo. Se precisar de suporte específico sobre o link," + instrucaoAtendimento + voltarMenu);
-          break;
-        case "3":
-          console.log(`[OPCAO 3] Consulta de execução/alvará de ${msg.from}`);
-          await typing();
-          await client.sendMessage(msg.from, "💰 Para consultar a expedição de alvarás ou o status da execução, *informe o número do processo*. Ressaltamos que se o processo estiver na fase de expedição do ofício requisitório de pagamento (RPV/precatório), eventuais dúvidas deverão ser tratadas diretamente com a SERPREC (serprec@tjrn.jus.br)." + instrucaoAtendimento + voltarMenu);
-          break;
-        case "4":
-          console.log(`[OPCAO 4] Atendimento humano solicitado de ${msg.from}`);
-          await typing();
-          if (ehFinalDeSemana || foraDoHorario) {
-            await client.sendMessage(msg.from, "⏳ No momento não há atendentes disponíveis. Registramos seu interesse em falar com um servidor e daremos prioridade ao seu atendimento a partir das 08:00 do próximo dia útil." + voltarMenu);
-          } else {
-            await client.sendMessage(msg.from, "⏳ Entendido. Encaminhei a sua solicitação para um dos nossos servidores. O horário de atendimento humano é de segunda a sexta, das 08:00 às 14:00. Por favor, aguarde um momento." + voltarMenu);
-          }
-          break;
-        default:
-          console.log(`[OPCAO INVÁLIDA] Texto: "${texto}" de ${msg.from}`);
-      }
-
-    } catch (error) {
-      console.error("❌ Erro no processamento da mensagem:", error);
-      console.error("[STACK]", error.stack);
     }
-  });
-  
-  console.log("[LISTENER] ✅ Listener de mensagens registrado com sucesso!");
+
+    processedMessages.set(msgKey, now);
+    console.log(`[MSG] De ${from}: "${text}"`);
+
+    // Verificar palavras-chave do menu
+    const menuKeywords = /^(menu|oi|olá|ola|bom dia|boa tarde|boa noite)$/i;
+    
+    if (menuKeywords.test(text)) {
+      await showMenu(from, true);
+      return;
+    }
+
+    // Primeira mensagem
+    if (!userMenuStates.has(from)) {
+      await showMenu(from, false);
+      return;
+    }
+
+    // Processar opção
+    if (/^[1-4]$/.test(text)) {
+      const businessHours = isTimeInBusinessHours();
+      await handleMessageOption(text, from, businessHours);
+    }
+
+  } catch (err) {
+    console.error(`[MSG] ❌ Erro ao processar mensagem de ${from}:`, err.message);
+  }
 }
+
+function registerMessageListener() {
+  if (msgListenerRegistered) {
+    console.log("[LISTENER] Já registrado");
+    return;
+  }
+
+  msgListenerRegistered = true;
+  console.log("[LISTENER] ✅ Listener de mensagens registrado");
+}
+
+// =====================================
+// STARTUP
+// =====================================
+console.log("\n🚀 INICIANDO BOT WHATSAPP\n");
+console.log("[INFO] Limpando sessões anteriores...");
+
+cleanupSession().then(async () => {
+  await delay(1000);
+  console.log("[INFO] Inicializando cliente...");
+  console.log("[INFO] Acesse http://localhost:" + PORT + "/qr para escanear o código\n");
+  
+  initializeClient();
+}).catch(err => {
+  console.error("[STARTUP] ❌ Erro no startup:", err.message);
+  process.exit(1);
+});
