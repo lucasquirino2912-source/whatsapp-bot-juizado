@@ -178,14 +178,18 @@ const setupEventHandlers = () => {
     isConnected = true;
     statusMessage = "Conectado e pronto!";
     reconnectAttempts = 0;
+    msgListenerRegistered = false; // Reset para detectar quando primária mensagem chega
     console.log("✅ Cliente pronto! Aguardando mensagens...");
-    
-    if (!msgListenerRegistered) {
-      registerMessageListener();
-    }
   });
 
-  client.on("message", handleMessage);
+  // Registrar listener de mensagens
+  client.on("message", async (msg) => {
+    if (!msgListenerRegistered) {
+      msgListenerRegistered = true;
+      console.log("[LISTENER] ✅ Primeiro evento de mensagem recebido");
+    }
+    await handleMessage(msg);
+  });
 
   client.on("disconnect", (reason) => {
     isConnected = false;
@@ -361,10 +365,13 @@ const initializeClient = async () => {
   try {
     console.log("[INIT] Inicializando cliente WhatsApp...");
     statusMessage = "Aguardando autenticação...";
+    isConnected = false;
+    msgListenerRegistered = false;
     
     await client.initialize();
     
     console.log("[INIT] ✅ Cliente inicializado com sucesso!");
+    // O evento 'ready' deve disparar automaticamente após initialize()
   } catch (err) {
     console.error("[INIT] ❌ Erro na inicialização:", err.message);
     await attemptReconnect();
@@ -372,6 +379,36 @@ const initializeClient = async () => {
 };
 
 setupEventHandlers();
+
+// =====================================
+// VERIFICAÇÃO PERIÓDICA DE CONEXÃO
+// =====================================
+setInterval(async () => {
+  if (!client) return;
+  
+  try {
+    // Verifica se o cliente está pronto
+    const state = client.info;
+    const hasPhone = state && state.pushname;
+    
+    if (hasPhone && !isConnected) {
+      // Cliente autenticado mas isConnected ainda é false
+      lastQr = null;
+      isConnected = true;
+      statusMessage = "Conectado e pronto!";
+      reconnectAttempts = 0;
+      msgListenerRegistered = false;
+      console.log("✅ [CONNECTION CHECK] Cliente está pronto!");
+    } else if (!hasPhone && isConnected) {
+      // Desconectou
+      isConnected = false;
+      msgListenerRegistered = false;
+      console.log("⚠️ [CONNECTION CHECK] Cliente desconectado");
+    }
+  } catch (err) {
+    // Silencioso - não logar a cada check
+  }
+}, 3000);
 
 // =====================================
 // EXCEPTION HANDLERS
@@ -589,13 +626,9 @@ async function handleMessage(msg) {
 }
 
 function registerMessageListener() {
-  if (msgListenerRegistered) {
-    console.log("[LISTENER] Já registrado");
-    return;
-  }
-
-  msgListenerRegistered = true;
-  console.log("[LISTENER] ✅ Listener de mensagens registrado");
+  // Esta função é agora apenas um placeholder
+  // O listener de mensagens é registrado diretamente no setupEventHandlers()
+  console.log("[LISTENER] Função deprecated - listener registrado em setupEventHandlers");
 }
 
 // =====================================
