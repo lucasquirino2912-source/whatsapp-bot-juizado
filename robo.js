@@ -84,7 +84,7 @@ const client = new Client({
 
 client.on("loading_screen", (percent, message) => {
   statusMessage = `Carregando: ${percent}% - ${message}`;
-  console.log(statusMessage);
+  console.log(`[LOADING] ${statusMessage} (timestamp: ${new Date().toLocaleTimeString()})`);
 });
 
 client.on("qr", (qr) => {
@@ -115,6 +115,8 @@ client.on("ready", () => {
 client.on("auth_failure", (msg) => {
   statusMessage = "Falha na autenticação. Reiniciando...";
   console.error("❌ Falha na autenticação:", msg);
+  console.error("[AUTH_FAILURE] Timestamp:", new Date().toLocaleString());
+  mensagenListenerRegistrado = false;
 });
 
 client.on("authenticated", () => {
@@ -233,8 +235,11 @@ const limparSessaoAnterior = () => {
   try {
     const authDir = path.join(__dirname, ".wwebjs_auth");
     if (fs.existsSync(authDir)) {
+      console.log("[INFO] Removendo .wwebjs_auth...");
       fs.rmSync(authDir, { recursive: true, force: true });
       console.log("[INFO] ✅ Autenticação anterior removida");
+    } else {
+      console.log("[INFO] .wwebjs_auth não existe");
     }
   } catch (err) {
     console.log("[WARN] Erro ao limpar autenticação:", err.message);
@@ -243,8 +248,11 @@ const limparSessaoAnterior = () => {
   try {
     const cacheDir = path.join(__dirname, ".wwebjs_cache");
     if (fs.existsSync(cacheDir)) {
+      console.log("[INFO] Removendo .wwebjs_cache...");
       fs.rmSync(cacheDir, { recursive: true, force: true });
       console.log("[INFO] ✅ Cache anterior removido");
+    } else {
+      console.log("[INFO] .wwebjs_cache não existe");
     }
   } catch (err) {
     console.log("[WARN] Erro ao limpar cache:", err.message);
@@ -255,64 +263,74 @@ const limparSessaoAnterior = () => {
 
 // Função para inicializar com retentativa
 async function inicializarComRetentativa(tentativa = 1) {
-  const maxTentativas = 3;
+  const maxTentativas = 5; // Aumentado para 5 tentativas
   
   try {
     console.log(`[INIT] Iniciando cliente (tentativa ${tentativa}/${maxTentativas})...`);
+    console.log(`[INIT] Timestamp: ${new Date().toLocaleString()}`);
     
     // Listener para monitorar se reached "ready"
     let readyEmitido = false;
+    let authenticatedEmitido = false;
+    
     const readyListener = () => {
       readyEmitido = true;
       console.log("[INIT] ✅ Evento 'ready' foi emitido!");
     };
     
-    client.once("ready", readyListener);
+    const authenticatedListener = () => {
+      authenticatedEmitido = true;
+      console.log("[INIT] ✅ Evento 'authenticated' foi emitido!");
+    };
     
+    client.once("ready", readyListener);
+    client.once("authenticated", authenticatedListener);
+    
+    // TIMEOUT AUMENTADO PARA 120 SEGUNDOS
     const initTimeout = new Promise((_, reject) => {
       const timer = setTimeout(() => {
         client.removeListener("ready", readyListener);
-        if (!readyEmitido) {
-          reject(new Error("Timeout na inicialização: Cliente não emitiu evento 'ready' em 90s"));
-        }
-      }, 90000);
+        client.removeListener("authenticated", authenticatedListener);
+        console.error("[INIT] ⏰ TIMEOUT DISPARADO!");
+        console.error(`[INIT] Ready emitido: ${readyEmitido}, Authenticated: ${authenticatedEmitido}`);
+        reject(new Error("Timeout na inicialização: Cliente não iniciou em 120s"));
+      }, 120000);
     });
     
     const initPromise = client.initialize();
     
-    console.log("[INIT] Aguardando inicialização do cliente...");
+    console.log("[INIT] Aguardando inicialização do cliente (máx 120s)...");
     await Promise.race([initPromise, initTimeout]);
     
-    if (!readyEmitido) {
-      console.warn("[INIT] ⚠️ Cliente inicializado mas evento 'ready' não foi emitido ainda");
-    } else {
-      console.log("[INFO] ✅ Cliente inicializado com sucesso");
-    }
+    console.log(`[INIT] Inicialização completada. Ready: ${readyEmitido}, Authenticated: ${authenticatedEmitido}`);
+    
   } catch (err) {
     console.error(`❌ Erro na inicialização (tentativa ${tentativa}/${maxTentativas}):`, err.message);
+    console.error(`[STACK]`, err.stack);
     
     if (tentativa < maxTentativas) {
-      console.log(`[INFO] Aguardando 5 segundos antes de retentativa ${tentativa + 1}...`);
+      const delaySegundos = 10 * tentativa; // Aumentar delay a cada tentativa
+      console.log(`[INFO] Aguardando ${delaySegundos}s antes de retentativa ${tentativa + 1}...`);
       statusMessage = `Tentando reconectar... (${tentativa}/${maxTentativas})`;
       
       // Limpar processo antigo do Puppeteer
       try {
+        console.log("[INFO] Destruindo cliente anterior...");
         await client.destroy();
+        console.log("[INFO] Cliente destruído com sucesso");
       } catch (e) {
         console.log("[WARN] Erro ao destruir cliente anterior:", e.message);
       }
       
-      // Se for erro de sessão corrompida, limpar tudo
-      if (err.message.includes("ENOENT") || err.message.includes("session") || err.message.includes("ready")) {
-        console.log("[INFO] Sessão ou timeout detectado. Limpando...");
-        limparSessaoAnterior();
-      }
+      // SEMPRE limpar sessão em caso de erro
+      console.log("[INFO] Limpando sessão...");
+      limparSessaoAnterior();
       
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      await new Promise(resolve => setTimeout(resolve, delaySegundos * 1000));
       await inicializarComRetentativa(tentativa + 1);
     } else {
-      statusMessage = `Erro ao inicializar: ${err.message}`;
-      console.error("❌ Falha após retentativas. Sistema em standby...");
+      statusMessage = `Erro permanente ao inicializar: ${err.message}`;
+      console.error("❌ Falha após todas as retentativas. Sistema em standby...");
       
       // Tentar limpeza completa após falhas
       console.log("[INFO] Executando limpeza completa...");
