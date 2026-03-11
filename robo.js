@@ -93,6 +93,7 @@ client.on("qr", (qr) => {
   console.log("\n📲 ========================================");
   console.log("📲 QR Code gerado! Escaneie com seu celular.");
   console.log("📲 Aceda à rota /qr no navegador para digitalizá-lo.");
+  console.log("📲 Timestamp: " + new Date().toLocaleString());
   console.log("📲 ========================================\n");
   qrcode.generate(qr, { small: true });
 });
@@ -101,6 +102,8 @@ client.on("ready", () => {
   lastQr = null;
   statusMessage = "Conectado e pronto!";
   console.log("✅ Tudo certo! WhatsApp conectado.");
+  console.log("✅ Timestamp: " + new Date().toLocaleString());
+  console.log("✅ Cliente info:", client.info);
 });
 
 client.on("auth_failure", (msg) => {
@@ -162,12 +165,30 @@ app.get('/', (req, res) => {
 });
 
 app.get('/status', (req, res) => {
-  const connected = !!(client && client.info && client.info.pushname);
-  res.json({
-    connected,
-    status: statusMessage,
-    user: connected ? client.info.pushname : null
-  });
+  try {
+    const connected = !!(client && client.info && client.info.pushname);
+    const info = client && client.info ? {
+      pushname: client.info.pushname,
+      me: client.info.me
+    } : null;
+    
+    console.log(`[API] Status check - Connected: ${connected}, Info:`, info);
+    
+    res.json({
+      connected,
+      status: statusMessage,
+      user: connected ? client.info.pushname : null,
+      info: info,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("[API] Erro ao verificar status:", error);
+    res.status(500).json({
+      connected: false,
+      status: statusMessage,
+      error: error.message
+    });
+  }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
@@ -209,12 +230,17 @@ async function inicializarComRetentativa(tentativa = 1) {
   const maxTentativas = 3;
   
   try {
-    await client.initialize();
+    console.log(`[INIT] Iniciando cliente (tentativa ${tentativa}/${maxTentativas})...`);
+    const initTimeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Timeout na inicialização (60s)")), 60000)
+    );
+    
+    await Promise.race([client.initialize(), initTimeout]);
     console.log("[INFO] ✅ Cliente inicializado com sucesso");
   } catch (err) {
     console.error(`❌ Erro na inicialização (tentativa ${tentativa}/${maxTentativas}):`, err.message);
     
-    if (err.message.includes("browser is already running") && tentativa < maxTentativas) {
+    if (tentativa < maxTentativas) {
       console.log(`[INFO] Aguardando 5 segundos antes de retentativa ${tentativa + 1}...`);
       statusMessage = `Tentando reconectar... (${tentativa}/${maxTentativas})`;
       
@@ -225,11 +251,21 @@ async function inicializarComRetentativa(tentativa = 1) {
         console.log("[WARN] Erro ao destruir cliente anterior:", e.message);
       }
       
+      // Se for erro de sessão corrompida, limpar tudo
+      if (err.message.includes("ENOENT") || err.message.includes("session")) {
+        console.log("[INFO] Sessão corrompida detectada. Limpando...");
+        limparSessaoAnterior();
+      }
+      
       await new Promise(resolve => setTimeout(resolve, 5000));
       await inicializarComRetentativa(tentativa + 1);
     } else {
       statusMessage = `Erro ao inicializar: ${err.message}`;
-      console.error("❌ Falha após retentativas. Aguardando redeploy...");
+      console.error("❌ Falha após retentativas. Sistema em standby...");
+      
+      // Tentar limpeza completa após falhas
+      console.log("[INFO] Executando limpeza completa...");
+      limparSessaoAnterior();
     }
   }
 }
