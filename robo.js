@@ -164,31 +164,43 @@ app.get('/', (req, res) => {
   res.send(`WhatsApp bot status: ${statusMessage}. Visit /qr to authenticate.`);
 });
 
-app.get('/status', (req, res) => {
-  try {
-    const connected = !!(client && client.info && client.info.pushname);
-    const info = client && client.info ? {
-      pushname: client.info.pushname,
-      me: client.info.me
-    } : null;
-    
-    console.log(`[API] Status check - Connected: ${connected}, Info:`, info);
-    
-    res.json({
-      connected,
-      status: statusMessage,
-      user: connected ? client.info.pushname : null,
-      info: info,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error("[API] Erro ao verificar status:", error);
-    res.status(500).json({
-      connected: false,
-      status: statusMessage,
-      error: error.message
-    });
-  }
+app.get('/debug', (req, res) => {
+  const debug = {
+    statusMessage,
+    connectedInfo: client.info || null,
+    hasQr: !!lastQr,
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: {
+      heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
+      heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + 'MB',
+      rss: Math.round(process.memoryUsage().rss / 1024 / 1024) + 'MB'
+    },
+    users: usuariosComMenu.size,
+    cache: mensagensProcessadas.size,
+    listeners: {
+      message: client.listeners('message').length,
+      ready: client.listeners('ready').length,
+      qr: client.listeners('qr').length,
+      authenticated: client.listeners('authenticated').length
+    }
+  };
+  res.json(debug);
+});
+
+app.get('/reset', (req, res) => {
+  console.log("[RESET] Reinicializando cliente manualmente...");
+  statusMessage = "Reinicializando...";
+  
+  usuariosComMenu.clear();
+  mensagensProcessadas.clear();
+  
+  client.destroy().then(() => {
+    setTimeout(() => inicializarComRetentativa(), 2000);
+    res.json({ status: "Reinicializando. Acesse /qr em 30 segundos." });
+  }).catch(err => {
+    res.status(500).json({ error: err.message });
+  });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
@@ -435,6 +447,9 @@ if (!mensagenListenerRegistrado) {
   mensagenListenerRegistrado = true;
 
 client.on("message", async (msg) => {
+  // Log de todas as mensagens recebidas
+  console.log(`[MSG RECEBIDA] De: ${msg.from}, Timestamp: ${msg.timestamp}, Corpo: "${msg.body}"`);
+  
   // Verificar se a mensagem já foi processada recentemente (debouncing)
   const msgKey = `${msg.from}:${msg.timestamp}`;
   const agoraMs = Date.now();
@@ -449,10 +464,18 @@ client.on("message", async (msg) => {
   mensagensProcessadas.set(msgKey, agoraMs);
   
   try {
-    if (!msg.from || msg.from.endsWith("@g.us")) return;
+    console.log(`[PROCESSANDO] Verificando se é mensagem privada: ${msg.from}`);
+    if (!msg.from || msg.from.endsWith("@g.us")) {
+      console.log(`[IGNORANDO] Mensagem de grupo ou origem inválida`);
+      return;
+    }
 
     const chat = await msg.getChat();
-    if (chat.isGroup) return;
+    console.log(`[CHAT] Chat obtido - IsGroup: ${chat.isGroup}`);
+    if (chat.isGroup) {
+      console.log(`[IGNORANDO] É um grupo`);
+      return;
+    }
 
     const agora = new Date();
     const horaAtual = agora.getHours();
@@ -477,43 +500,52 @@ client.on("message", async (msg) => {
 
     // Função para enviar menu
     const enviarMenu = async (forcado = false) => {
-      // Verificar novamente se o usuário já tem menu registrado (double-check)
-      // MAS: Se for ativado por palavra-chave (forcado=true), ignora este check
-      if (!forcado && usuariosComMenu.has(msg.from)) {
-        console.log(`[INFO] Menu já foi mostrado para ${msg.from}. Ignorando.`);
-        return;
-      }
-      
-      await typing(3000);
-
-      let saudacao = "Olá";
-      if (horaAtual >= 5 && horaAtual < 12) saudacao = "Bom dia";
-      else if (horaAtual >= 12 && horaAtual < 18) saudacao = "Boa tarde";
-      else saudacao = "Boa noite";
-
-      if (ehFinalDeSemana || foraDoHorario) {
-        const avisoForaHorario = 
-          `${saudacao}! 👋\n\n` +
-          `Você entrou em contato com o *4º Juizado Especial da Fazenda Pública* fora do nosso horário de atendimento (08:00 às 14:00).\n\n` +
-          `*Informamos que sua mensagem será visualizada e respondida por um de nossos servidores apenas no próximo dia útil.*\n\n` +
-          `No entanto, você pode utilizar nosso menu automático abaixo para tirar dúvidas agora:`;
+      try {
+        // Verificar novamente se o usuário já tem menu registrado (double-check)
+        // MAS: Se for ativado por palavra-chave (forcado=true), ignora este check
+        if (!forcado && usuariosComMenu.has(msg.from)) {
+          console.log(`[INFO] Menu já foi mostrado para ${msg.from}. Ignorando.`);
+          return;
+        }
         
-        await client.sendMessage(msg.from, avisoForaHorario);
-        await delay(1500);
+        console.log(`[MENU] Preparando para enviar menu (forcado: ${forcado})...`);
+        await typing(3000);
+        console.log(`[MENU] Typing completo, gerando conteúdo...`);
+
+        let saudacao = "Olá";
+        if (horaAtual >= 5 && horaAtual < 12) saudacao = "Bom dia";
+        else if (horaAtual >= 12 && horaAtual < 18) saudacao = "Boa tarde";
+        else saudacao = "Boa noite";
+
+        if (ehFinalDeSemana || foraDoHorario) {
+          const avisoForaHorario = 
+            `${saudacao}! 👋\n\n` +
+            `Você entrou em contato com o *4º Juizado Especial da Fazenda Pública* fora do nosso horário de atendimento (08:00 às 14:00).\n\n` +
+            `*Informamos que sua mensagem será visualizada e respondida por um de nossos servidores apenas no próximo dia útil.*\n\n` +
+            `No entanto, você pode utilizar nosso menu automático abaixo para tirar dúvidas agora:`;
+          
+          console.log(`[MENU] Enviando aviso fora de horário...`);
+          await client.sendMessage(msg.from, avisoForaHorario);
+          await delay(1500);
+        }
+
+        const menuMsg = 
+          (ehFinalDeSemana || foraDoHorario ? `*MENU AUTOMÁTICO:*\n\n` : `${saudacao}! 👋\n\nEste é o atendimento automático do *4º Juizado Especial da Fazenda Pública*.\n\n`) +
+          `Como podemos ajudar? Digite o número da opção desejada:\n\n` +
+          `1️⃣ - Consultar andamento processual\n` +
+          `2️⃣ - Orientações sobre audiências\n` +
+          `3️⃣ - Consultar andamento da execução/alvará\n\n` +
+          `_Por favor, responda apenas com o número._`;
+
+        console.log(`[MENU] Enviando menu para ${msg.from}...`);
+        await client.sendMessage(msg.from, menuMsg);
+        usuariosComMenu.set(msg.from, Date.now()); // Armazenar timestamp ao invés de apenas marcar
+        console.log(`[INFO] ✅ Menu enviado com sucesso para ${msg.from}`);
+        return;
+      } catch (e) {
+        console.error(`[ERRO] Erro ao enviar menu para ${msg.from}:`, e.message);
+        throw e;
       }
-
-      const menuMsg = 
-        (ehFinalDeSemana || foraDoHorario ? `*MENU AUTOMÁTICO:*\n\n` : `${saudacao}! 👋\n\nEste é o atendimento automático do *4º Juizado Especial da Fazenda Pública*.\n\n`) +
-        `Como podemos ajudar? Digite o número da opção desejada:\n\n` +
-        `1️⃣ - Consultar andamento processual\n` +
-        `2️⃣ - Orientações sobre audiências\n` +
-        `3️⃣ - Consultar andamento da execução/alvará\n\n` +
-        `_Por favor, responda apenas com o número._`;
-
-      await client.sendMessage(msg.from, menuMsg);
-      usuariosComMenu.set(msg.from, Date.now()); // Armazenar timestamp ao invés de apenas marcar
-      console.log(`[INFO] Menu enviado para ${msg.from}`);
-      return;
     };
 
     // Palavras-chave que ativam o menu
@@ -536,18 +568,22 @@ client.on("message", async (msg) => {
     
     switch (texto) {
       case "1":
+        console.log(`[OPCAO 1] Consulta de andamento processual de ${msg.from}`);
         await typing();
         await client.sendMessage(msg.from, "🔍 Para consultar o andamento, pode aceder ao portal do PJe ou *informar os dados abaixo para verificação* (nome e número do processo)." + instrucaoAtendimento + voltarMenu);
         break;
       case "2":
+        console.log(`[OPCAO 2] Orientações sobre audiências de ${msg.from}`);
         await typing();
         await client.sendMessage(msg.from, "⚖️ As audiências são realizadas preferencialmente de forma virtual. Caso tenha uma audiência agendada, o link será disponibilizado nos autos do processo. Se precisar de suporte específico sobre o link," + instrucaoAtendimento + voltarMenu);
         break;
       case "3":
+        console.log(`[OPCAO 3] Consulta de execução/alvará de ${msg.from}`);
         await typing();
         await client.sendMessage(msg.from, "💰 Para consultar a expedição de alvarás ou o status da execução, *informe o número do processo*. Ressaltamos que se o processo estiver na fase de expedição do ofício requisitório de pagamento (RPV/precatório), eventuais dúvidas deverão ser tratadas diretamente com a SERPREC (serprec@tjrn.jus.br)." + instrucaoAtendimento + voltarMenu);
         break;
       case "4":
+        console.log(`[OPCAO 4] Atendimento humano solicitado de ${msg.from}`);
         await typing();
         if (ehFinalDeSemana || foraDoHorario) {
           await client.sendMessage(msg.from, "⏳ No momento não há atendentes disponíveis. Registramos seu interesse em falar com um servidor e daremos prioridade ao seu atendimento a partir das 08:00 do próximo dia útil." + voltarMenu);
@@ -555,10 +591,13 @@ client.on("message", async (msg) => {
           await client.sendMessage(msg.from, "⏳ Entendido. Encaminhei a sua solicitação para um dos nossos servidores. O horário de atendimento humano é de segunda a sexta, das 08:00 às 14:00. Por favor, aguarde um momento." + voltarMenu);
         }
         break;
+      default:
+        console.log(`[OPCAO INVÁLIDA] Texto: "${texto}" de ${msg.from}`);
     }
 
   } catch (error) {
     console.error("❌ Erro no processamento da mensagem:", error);
+    console.error("[STACK]", error.stack);
   }
 });
 } // Fim do if (!mensagenListenerRegistrado)
