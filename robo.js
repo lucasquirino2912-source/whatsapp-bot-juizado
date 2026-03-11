@@ -120,11 +120,14 @@ client.on("auth_failure", (msg) => {
 client.on("authenticated", () => {
   statusMessage = "Autenticado - iniciando sessão";
   console.log("✅ Autenticado com sucesso!");
+  console.log("✅ Timestamp: " + new Date().toLocaleString());
 });
 
 client.on("disconnected", (reason) => {
   statusMessage = "Desconectado. Aguardando novo QR Code...";
   console.log("⚠️ Desconectado:", reason);
+  console.log("⚠️ Timestamp: " + new Date().toLocaleString());
+  mensagenListenerRegistrado = false; // Reset listener quando desconectar
 });
 
 // =====================================
@@ -175,8 +178,9 @@ app.get('/debug', (req, res) => {
     statusMessage,
     connectedInfo: client.info || null,
     hasQr: !!lastQr,
+    listenerRegistrado: mensagenListenerRegistrado,
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
+    uptime: Math.round(process.uptime()) + 's',
     memory: {
       heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
       heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + 'MB',
@@ -188,7 +192,13 @@ app.get('/debug', (req, res) => {
       message: client.listeners('message').length,
       ready: client.listeners('ready').length,
       qr: client.listeners('qr').length,
-      authenticated: client.listeners('authenticated').length
+      authenticated: client.listeners('authenticated').length,
+      disconnected: client.listeners('disconnected').length
+    },
+    clientState: {
+      pupPage: !!client.pupPage,
+      pupBrowser: !!client.pupBrowser,
+      isReady: !!client.isReady
     }
   };
   res.json(debug);
@@ -249,12 +259,35 @@ async function inicializarComRetentativa(tentativa = 1) {
   
   try {
     console.log(`[INIT] Iniciando cliente (tentativa ${tentativa}/${maxTentativas})...`);
-    const initTimeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Timeout na inicialização (60s)")), 60000)
-    );
     
-    await Promise.race([client.initialize(), initTimeout]);
-    console.log("[INFO] ✅ Cliente inicializado com sucesso");
+    // Listener para monitorar se reached "ready"
+    let readyEmitido = false;
+    const readyListener = () => {
+      readyEmitido = true;
+      console.log("[INIT] ✅ Evento 'ready' foi emitido!");
+    };
+    
+    client.once("ready", readyListener);
+    
+    const initTimeout = new Promise((_, reject) => {
+      const timer = setTimeout(() => {
+        client.removeListener("ready", readyListener);
+        if (!readyEmitido) {
+          reject(new Error("Timeout na inicialização: Cliente não emitiu evento 'ready' em 90s"));
+        }
+      }, 90000);
+    });
+    
+    const initPromise = client.initialize();
+    
+    console.log("[INIT] Aguardando inicialização do cliente...");
+    await Promise.race([initPromise, initTimeout]);
+    
+    if (!readyEmitido) {
+      console.warn("[INIT] ⚠️ Cliente inicializado mas evento 'ready' não foi emitido ainda");
+    } else {
+      console.log("[INFO] ✅ Cliente inicializado com sucesso");
+    }
   } catch (err) {
     console.error(`❌ Erro na inicialização (tentativa ${tentativa}/${maxTentativas}):`, err.message);
     
@@ -270,8 +303,8 @@ async function inicializarComRetentativa(tentativa = 1) {
       }
       
       // Se for erro de sessão corrompida, limpar tudo
-      if (err.message.includes("ENOENT") || err.message.includes("session")) {
-        console.log("[INFO] Sessão corrompida detectada. Limpando...");
+      if (err.message.includes("ENOENT") || err.message.includes("session") || err.message.includes("ready")) {
+        console.log("[INFO] Sessão ou timeout detectado. Limpando...");
         limparSessaoAnterior();
       }
       
