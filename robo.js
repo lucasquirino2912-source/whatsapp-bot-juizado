@@ -233,14 +233,9 @@ const limparSessaoAnterior = () => {
   console.log("[INFO] Limpando sessões anteriores...");
   
   try {
-    const authDir = path.join(__dirname, ".wwebjs_auth");
-    if (fs.existsSync(authDir)) {
-      console.log("[INFO] Removendo .wwebjs_auth...");
-      fs.rmSync(authDir, { recursive: true, force: true });
-      console.log("[INFO] ✅ Autenticação anterior removida");
-    } else {
-      console.log("[INFO] .wwebjs_auth não existe");
-    }
+    console.log("[INFO] Removendo .wwebjs_auth...");
+    fs.rmSync(authDir, { recursive: true, force: true });
+    console.log("[INFO] ✅ Autenticação anterior removida");
   } catch (err) {
     console.log("[WARN] Erro ao limpar autenticação:", err.message);
   }
@@ -379,10 +374,10 @@ let mensagenListenerRegistrado = false;
 // Debouncing: armazenar ID e timestamp de mensagens processadas (com limite CRÍTICO)
 const mensagensProcessadas = new Map();
 const DEBOUNCE_TIMEOUT = 2000; // 2 segundos
-const MAX_CACHED_MESSAGES = 50; // Crítico: apenas 50 mensagens
-const MAX_USUARIOS_MENU = 500; // Crítico: apenas 500 usuários
-const USUARIO_MENU_EXPIRY = 21600000; // Crítico: apenas 6 horas
-const MEMORY_RESTART_THRESHOLD = 300; // Se RSS > 300MB, fazer restart automático
+const MAX_CACHED_MESSAGES = 20; // REDUZIDO: apenas 20 mensagens
+const MAX_USUARIOS_MENU = 100; // REDUZIDO: apenas 100 usuários
+const USUARIO_MENU_EXPIRY = 3600000; // REDUZIDO: apenas 1 hora
+const MEMORY_RESTART_THRESHOLD = 200; // Se RSS > 200MB, fazer restart automático
 
 // Função para limpar usuário antigo do menu
 const limparUsuarioMenuAntigoSeNecessario = () => {
@@ -405,7 +400,7 @@ const limparUsuarioMenuAntigoSeNecessario = () => {
   }
 };
 
-// Monitoramento CRÍTICO de memória (a cada 5 segundos) com restart automático
+// Monitoramento CRÍTICO de memória (a cada 2 segundos) com restart automático - AUMENTADO DE 5s PARA 2s
 let restartEmProgresso = false;
 let inicioExecucao = Date.now();
 const PERIODO_GRACA_RESTART = 300000; // 5 minutos de graça sem restart (tempo para QR)
@@ -489,7 +484,7 @@ setInterval(async () => {
     console.warn(`⚠️ AVISO: Heap em ${heapPercent}%`);
     mensagensProcessadas.clear();
   }
-}, 5000);
+}, 2000); // AUMENTADO DE 5s PARA 2s - LIMPEZA MAIS FREQUENTE
 
 // Definir instrução de atendimento contextual
 const getInstrucaoAtendimento = (ehFinalDeSemana, foraDoHorario) => {
