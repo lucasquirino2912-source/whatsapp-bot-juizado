@@ -430,8 +430,13 @@ client.on("message", async (msg) => {
 
     const delay = (ms) => new Promise((res) => setTimeout(res, ms));
     const typing = async (tempo = 2000) => {
-      await chat.sendStateTyping();
-      await delay(tempo);
+      try {
+        await chat.clearState();
+        await delay(tempo);
+      } catch (e) {
+        console.log("[INFO] Estado do chat não disponível, aguardando...");
+        await delay(tempo);
+      }
     };
 
     // Função para enviar menu
