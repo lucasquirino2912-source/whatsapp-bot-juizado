@@ -55,30 +55,32 @@ const getPuppeteerArgs = () => [
   "--disable-setuid-sandbox",
   "--disable-dev-shm-usage",
   "--disable-gpu",
-  "--disable-web-resources",
-  "--disable-features=IsolateOrigins,site-per-process",
-  "--memory-pressure-off",
-  "--disable-backgrounding-occluded-windows",
-  "--disable-background-timer-throttling",
-  "--disable-breakpad",
-  "--disable-client-side-phishing-detection",
-  "--disable-component-extensions-with-background-pages",
-  "--disable-hang-monitor",
+  "--disable-accelerated-2d-canvas",
+  "--no-first-run",
+  "--no-zygote",
+  "--disable-canvas-aa",
+  "--disable-2d-canvas-clip-aa",
+  "--disable-gl-drawing-for-tests",
+  "--disable-extensions",
   "--disable-popup-blocking",
   "--disable-prompt-on-repost",
   "--disable-sync",
   "--enable-automation",
-  "--no-service-autorun",
+  "--js-flags='--max-old-space-size=128'",
 ];
 
 const createClientConfig = () => ({
-  authStrategy: new LocalAuth({ clientId: 'bot' }),
+  authStrategy: new LocalAuth({ clientId: 'bot', dataPath: AUTH_DIR }),
   puppeteer: {
     headless: true,
     args: getPuppeteerArgs(),
     executablePath: getChromiumPath(),
   },
-  webVersion: "2.2412.54",
+  // CRÍTICO: Usar webVersionCache remoto para evitar erro de navegador não suportado
+  webVersionCache: {
+    type: 'remote',
+    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+  },
   restartOnCrash: true,
 });
 
@@ -139,11 +141,17 @@ const cleanupSession = async (force = false) => {
 const destroyClient = async () => {
   try {
     if (client && client.pupBrowser) {
+      console.log("[DESTROY] Fechando navegador para liberar RAM...");
       await client.destroy();
-      console.log("[INFO] Cliente destruído com sucesso");
+      console.log("[DESTROY] ✅ Cliente destruído com sucesso");
+      // Forçar garbage collection se disponível
+      if (global.gc) {
+        console.log("[GC] Forçando garbage collection...");
+        global.gc();
+      }
     }
   } catch (err) {
-    console.warn("[INFO] Erro ao destruir cliente:", err.message);
+    console.warn("[DESTROY] Erro ao destruir cliente:", err.message);
   }
 };
 
@@ -178,8 +186,11 @@ const setupEventHandlers = () => {
     isConnected = true;
     statusMessage = "Conectado e pronto!";
     reconnectAttempts = 0;
-    msgListenerRegistered = false; // Reset para detectar quando primária mensagem chega
-    console.log("✅ Cliente pronto! Aguardando mensagens...");
+    msgListenerRegistered = false;
+    console.log("✅ Cliente pronto! Usuário:", client.info?.pushname);
+    
+    // Inicia Keep-Alive otimizado
+    startKeepAlive();
   });
 
   // CRITICAL: Registrar listener de mensagens com tratamento de erro
@@ -195,12 +206,13 @@ const setupEventHandlers = () => {
     }
   });
 
-  client.on("disconnect", (reason) => {
+  client.on("disconnect", async (reason) => {
     isConnected = false;
     statusMessage = `Desconectado: ${reason}`;
     msgListenerRegistered = false;
+    stopKeepAlive();
     console.log("⚠️ Desconectado:", reason);
-    attemptReconnect();
+    await attemptReconnect();
   });
 
   client.on("auth_failure", (msg) => {
@@ -336,33 +348,34 @@ server.on('error', (err) => {
 // RECONEXÃO AUTOMÁTICA
 // =====================================
 const attemptReconnect = async () => {
+  stopKeepAlive();
+  
   if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     statusMessage = "Falha permanente de conexão. Aguardando manual...";
-    console.error("❌ Máximo de tentativas de reconexão excedido");
+    console.error("❌ Máximo de tentativas de reconexão excedido. Bot inativo.");
     return;
   }
 
   reconnectAttempts++;
   const waitTime = INITIAL_RECONNECT_DELAY * Math.pow(2, reconnectAttempts - 1);
+  const waitSeconds = Math.round(waitTime / 1000);
   
-  console.log(`[RECONNECT] Tentativa ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}. Aguardando ${Math.round(waitTime/1000)}s...`);
+  console.log(`[RECONNECT] Tentativa ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}. Aguardando ${waitSeconds}s com backoff exponencial...`);
   statusMessage = `Reconectando... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`;
   
   await delay(waitTime);
   
   try {
-    console.log("[RECONNECT] Destruindo cliente anterior...");
+    console.log("[RECONNECT] Destruindo cliente com liberação de RAM...");
     await destroyClient();
-    await delay(500);
-    
-    console.log("[RECONNECT] Limpando sessão...");
-    await cleanupSession();
     await delay(1000);
     
-    console.log("[RECONNECT] Recriando cliente...");
-    recreateClient();
+    console.log("[RECONNECT] Limpando sessão anterior...");
+    await cleanupSession();
+    await delay(2000);
     
-    console.log("[RECONNECT] Inicializando cliente...");
+    console.log("[RECONNECT] Recriando e inicializando cliente...");
+    recreateClient();
     await initializeClient();
   } catch (err) {
     console.error("[RECONNECT] Erro na reconexão:", err.message);
@@ -446,8 +459,50 @@ process.on("unhandledRejection", (reason) => {
 });
 
 // =====================================
-// MONITORAMENTO DE MEMÓRIA
+// KEEP-ALIVE COM GARBAGE COLLECTION
 // =====================================
+let keepAliveInterval = null;
+
+const startKeepAlive = () => {
+  if (keepAliveInterval) {
+    console.log("[KEEP-ALIVE] Já está rodando");
+    return;
+  }
+
+  keepAliveInterval = setInterval(async () => {
+    if (!isConnected || !client) return;
+    
+    try {
+      // Verifica estado da conexão
+      const state = await client.getState();
+      
+      if (state === 'CONNECTED') {
+        // Força garbage collection para manter memória baixa
+        if (global.gc) {
+          global.gc();
+        }
+        
+        const mem = process.memoryUsage();
+        const rss = Math.round(mem.rss / 1024 / 1024);
+        if (rss % 10 === 0) { // Log a cada 10MB incremental
+          console.log(`[KEEP-ALIVE] ✅ Conectado | Memória: ${rss}MB`);
+        }
+      } else {
+        console.warn("[KEEP-ALIVE] Estado inesperado:", state);
+      }
+    } catch (err) {
+      console.error("[KEEP-ALIVE] Erro ao verificar estado:", err.message);
+    }
+  }, 60000); // Check a cada 1 minuto (não 5 min, pois WebSocket desconecta)
+};
+
+const stopKeepAlive = () => {
+  if (keepAliveInterval) {
+    clearInterval(keepAliveInterval);
+    keepAliveInterval = null;
+    console.log("[KEEP-ALIVE] Interruptor parado");
+  }
+};
 setInterval(async () => {
   const mem = process.memoryUsage();
   const rss = Math.round(mem.rss / 1024 / 1024);
