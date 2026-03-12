@@ -92,6 +92,7 @@ let client = new Client(createClientConfig());
 let msgListenerRegistered = false;
 let messageListenerInitialized = false;
 let reconnectAttempts = 0;
+let eventHandlersSetup = false;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const INITIAL_RECONNECT_DELAY = 5000;
 
@@ -156,66 +157,17 @@ const destroyClient = async () => {
   }
 };
 
-const recreateClient = () => {
-  messageListenerInitialized = false; // Reset flag
-  client = new Client(createClientConfig());
-  setupEventHandlers();
-  console.log("[RECREATE] Novo cliente criado com listeners configurados");
-};
-
 // =====================================
-// FORÇA LISTENER DE MENSAGENS - ROBUSTA
-// =====================================
-const forceMessageListener = () => {
-  if (messageListenerInitialized || !client) return;
-  
-  console.log("[LISTENER] 🔧 Forçando registração de listener de mensagens...");
-  
-  try {
-    client.removeAllListeners('message');
-  } catch (err) {
-    console.log("[LISTENER] Info: sem listeners anteriores");
-  }
-  
-  // Registrar listener com máxima robustez
-  client.on('message', async (msg) => {
-    try {
-      if (!msg || !msg.from) return;
-      
-      if (!msgListenerRegistered) {
-        msgListenerRegistered = true;
-        console.log(`[LISTENER] ✅ ATIVADO - Recebendo mensagens do WhatsApp!`);
-      }
-      
-      console.log(`[MSG] Recebido de ${msg.from}: "${msg.body}"`);
-      await handleMessage(msg);
-    } catch (err) {
-      console.error("[LISTENER] ❌ Erro ao processar mensagem:", err.message);
-    }
-  });
-  
-  messageListenerInitialized = true;
-  msgListenerRegistered = false; // Reset flag para detectar primeira mensagem
-  console.log("[LISTENER] ✅ Listener registrado com sucesso!");
-};
-
-// =====================================
-// VERIFICAÇÃO PERIÓDICA DE LISTENER
-// =====================================
-setInterval(() => {
-  if (!isConnected || !client) return;
-  
-  // Força listener se não estiver inicializado
-  if (!messageListenerInitialized) {
-    console.log("[CHECK] Detectado listener não inicializado - refixando...");
-    forceMessageListener();
-  }
-}, 5000); // Check a cada 5 segundos
-
-// =====================================
-// CONFIGURAÇÃO DE EVENTOS
+// CONFIGURAÇÃO DE EVENTOS - CENTRALIZADA
 // =====================================
 const setupEventHandlers = () => {
+  if (eventHandlersSetup) {
+    console.log("[SETUP] Event handlers já configurados, pulando");
+    return;
+  }
+  
+  console.log("[SETUP] 🔨 Configurando event handlers...");
+  
   client.on("loading_screen", (percent, message) => {
     statusMessage = `Carregando: ${percent}% - ${message}`;
     console.log(`[LOADING] ${statusMessage}`);
@@ -231,7 +183,7 @@ const setupEventHandlers = () => {
   client.on("authenticated", () => {
     statusMessage = "Autenticado com sucesso";
     console.log("✅ Autenticado!");
-    // Também força listener na autenticação
+    messageListenerInitialized = false; // Reset para reforçar
     forceMessageListener();
   });
 
@@ -241,24 +193,24 @@ const setupEventHandlers = () => {
     statusMessage = "Conectado e pronto!";
     reconnectAttempts = 0;
     msgListenerRegistered = false;
+    messageListenerInitialized = false; // Reset para reforçar listener
     console.log("✅ Cliente pronto! Usuário:", client.info?.pushname);
     
-    // FORÇA listener de mensagens
-    console.log("[READY] Forçando listener de mensagens...");
-    forceMessageListener();
+    // CRÍTICO: Forçar listener IMEDIATAMENTE
+    console.log("[READY] 🔧 Forçando listener (ready event)...");
+    setTimeout(() => {
+      forceMessageListener();
+    }, 100);
     
-    // Inicia Keep-Alive otimizado
     startKeepAlive();
   });
-
-  // REMOVIDO: Listener duplicado - agora usando forceMessageListener() em ready e authenticated
-  // client.on message está agora em forceMessageListener()
 
   client.on("disconnect", async (reason) => {
     isConnected = false;
     statusMessage = `Desconectado: ${reason}`;
     msgListenerRegistered = false;
-    messageListenerInitialized = false; // Reset listener flag
+    messageListenerInitialized = false;
+    eventHandlersSetup = false; // Reset status
     stopKeepAlive();
     console.log("⚠️ Desconectado:", reason);
     await attemptReconnect();
@@ -275,7 +227,90 @@ const setupEventHandlers = () => {
   client.on("error", (err) => {
     console.error("❌ Erro no cliente:", err.message);
   });
+  
+  eventHandlersSetup = true;
+  console.log("[SETUP] ✅ Event handlers configurados!");
 };
+
+const recreateClient = () => {
+  console.log("[RECREATE] Recriando client...");
+  messageListenerInitialized = false;
+  msgListenerRegistered = false;
+  eventHandlersSetup = false;
+  client = new Client(createClientConfig());
+  setupEventHandlers();
+  console.log("[RECREATE] ✅ Novo cliente criado com listeners");
+};
+
+// =====================================
+// FORÇA LISTENER DE MENSAGENS - ROBUSTA
+// =====================================
+const forceMessageListener = () => {
+  if (!client) {
+    console.log("[LISTENER] ❌ Client não existe, pulando listener");
+    return;
+  }
+  
+  // NÃO RETORNAR CEDO - SEMPRE FORÇAR O LISTENER
+  // (messageListenerInitialized pode estar true mas listener pode ter sido desanexado)
+  
+  console.log("[LISTENER] 🔧 Forçando registração robusta de listener de mensagens...");
+  
+  try {
+    // CRÍTICO: Remover TODOS os listeners antigos primeiro
+    client.removeAllListeners('message');
+    console.log("[LISTENER] Listeners antigos removidos");
+  } catch (err) {
+    console.log("[LISTENER] Info: nenhum listener anterior");
+  }
+  
+  // Registrar listener fresco com máxima robustez
+  try {
+    client.on('message', async (msg) => {
+      try {
+        if (!msg || !msg.from) return;
+        
+        if (!msgListenerRegistered) {
+          msgListenerRegistered = true;
+          console.log(`[LISTENER] ✅✅✅ ATIVADO - Recebendo mensagens do WhatsApp!`);
+        }
+        
+        console.log(`[MSG] Recebido de ${msg.from}: "${msg.body}"`);
+        await handleMessage(msg);
+      } catch (err) {
+        console.error("[LISTENER] ❌ Erro ao processar mensagem:", err.message);
+      }
+    });
+    
+    messageListenerInitialized = true;
+    msgListenerRegistered = false;
+    console.log("[LISTENER] ✅ Listener registrado e ativo!");
+  } catch (err) {
+    console.error("[LISTENER] ❌ Erro ao registrar listener:", err.message);
+    messageListenerInitialized = false;
+  }
+};
+
+// =====================================
+// VERIFICAÇÃO PERIÓDICA DE LISTENER
+// =====================================
+let lastListenerCheck = 0;
+setInterval(() => {
+  if (!isConnected || !client) return;
+  
+  const now = Date.now();
+  if (now - lastListenerCheck < 10000) return; // Check a cada 10 segundos
+  lastListenerCheck = now;
+  
+  // Verificar e reforçar listener regularmente
+  if (!messageListenerInitialized) {
+    console.log("[CHECK-LISTENER] ⚠️ Listener não inicializado - reforçando...");
+    messageListenerInitialized = false; // Force reinicialização
+    forceMessageListener();
+  } else {
+    console.log("[CHECK-LISTENER] ✅ Listener ativo e funcionando");
+  }
+}, 10000); // Check a cada 10 segundos
 
 // =====================================
 // ROTAS DO SERVIDOR WEB
@@ -444,6 +479,12 @@ const initializeClient = async () => {
     msgListenerRegistered = false;
     reconnectAttempts = 0;
     
+    // CRÍTICO: Registrar handlers ANTES de inicializar
+    if (!eventHandlersSetup) {
+      console.log("[INIT] Registrando event handlers...");
+      setupEventHandlers();
+    }
+    
     console.log("[INIT] Chamando client.initialize()...");
     await client.initialize();
     
@@ -457,7 +498,7 @@ const initializeClient = async () => {
   }
 };
 
-setupEventHandlers();
+// REMOVIDO: setupEventHandlers() não deve ser chamada aqui - será chamada só após client.initialize()
 
 // =====================================
 // VERIFICAÇÃO PERIÓDICA DE CONEXÃO (mais agressivo)
