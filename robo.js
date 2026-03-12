@@ -182,13 +182,17 @@ const setupEventHandlers = () => {
     console.log("✅ Cliente pronto! Aguardando mensagens...");
   });
 
-  // Registrar listener de mensagens
+  // CRITICAL: Registrar listener de mensagens com tratamento de erro
   client.on("message", async (msg) => {
     if (!msgListenerRegistered) {
       msgListenerRegistered = true;
-      console.log("[LISTENER] ✅ Primeiro evento de mensagem recebido");
+      console.log("[LISTENER] ✅ Listener ativado - pronto para receber mensagens");
     }
-    await handleMessage(msg);
+    try {
+      await handleMessage(msg);
+    } catch (err) {
+      console.error("[LISTENER] Erro ao processar eventos de mensagem:", err.message);
+    }
   });
 
   client.on("disconnect", (reason) => {
@@ -341,19 +345,28 @@ const attemptReconnect = async () => {
   reconnectAttempts++;
   const waitTime = INITIAL_RECONNECT_DELAY * Math.pow(2, reconnectAttempts - 1);
   
-  console.log(`[RECONNECT] Tentativa ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}. Aguardando ${waitTime}ms...`);
+  console.log(`[RECONNECT] Tentativa ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}. Aguardando ${Math.round(waitTime/1000)}s...`);
   statusMessage = `Reconectando... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`;
   
   await delay(waitTime);
   
   try {
+    console.log("[RECONNECT] Destruindo cliente anterior...");
     await destroyClient();
+    await delay(500);
+    
+    console.log("[RECONNECT] Limpando sessão...");
     await cleanupSession();
     await delay(1000);
+    
+    console.log("[RECONNECT] Recriando cliente...");
     recreateClient();
+    
+    console.log("[RECONNECT] Inicializando cliente...");
     await initializeClient();
   } catch (err) {
     console.error("[RECONNECT] Erro na reconexão:", err.message);
+    console.error(err.stack);
     await attemptReconnect();
   }
 };
@@ -367,13 +380,17 @@ const initializeClient = async () => {
     statusMessage = "Aguardando autenticação...";
     isConnected = false;
     msgListenerRegistered = false;
+    reconnectAttempts = 0;
     
+    console.log("[INIT] Chamando client.initialize()...");
     await client.initialize();
     
     console.log("[INIT] ✅ Cliente inicializado com sucesso!");
-    // O evento 'ready' deve disparar automaticamente após initialize()
+    console.log("[INIT] Aguardando evento 'ready'...");
+    
   } catch (err) {
     console.error("[INIT] ❌ Erro na inicialização:", err.message);
+    console.error(err.stack);
     await attemptReconnect();
   }
 };
@@ -381,10 +398,15 @@ const initializeClient = async () => {
 setupEventHandlers();
 
 // =====================================
-// VERIFICAÇÃO PERIÓDICA DE CONEXÃO
+// VERIFICAÇÃO PERIÓDICA DE CONEXÃO (mais agressivo)
 // =====================================
+let lastConnectionCheck = 0;
 setInterval(async () => {
   if (!client) return;
+  
+  const now = Date.now();
+  if (now - lastConnectionCheck < 2000) return; // Evitar spam de logs
+  lastConnectionCheck = now;
   
   try {
     // Verifica se o cliente está pronto
@@ -392,23 +414,24 @@ setInterval(async () => {
     const hasPhone = state && state.pushname;
     
     if (hasPhone && !isConnected) {
-      // Cliente autenticado mas isConnected ainda é false
+      // Cliente autenticado mas isConnected ainda é false - FORÇAR UPDATE
       lastQr = null;
       isConnected = true;
       statusMessage = "Conectado e pronto!";
       reconnectAttempts = 0;
       msgListenerRegistered = false;
-      console.log("✅ [CONNECTION CHECK] Cliente está pronto!");
+      console.log("✅ [CONNECTION CHECK] Cliente autenticado e pronto! Nome:", state.pushname);
     } else if (!hasPhone && isConnected) {
       // Desconectou
       isConnected = false;
       msgListenerRegistered = false;
+      statusMessage = "Conexão perdida - tentando reconectar";
       console.log("⚠️ [CONNECTION CHECK] Cliente desconectado");
     }
   } catch (err) {
-    // Silencioso - não logar a cada check
+    console.error("[CONNECTION CHECK] Erro ao verificar conexão:", err.message);
   }
-}, 3000);
+}, 2000);
 
 // =====================================
 // EXCEPTION HANDLERS
@@ -509,7 +532,12 @@ const getSalutation = () => {
 
 const showMenu = async (from, isForced = false) => {
   if (!isForced && userMenuStates.has(from)) {
-    console.log(`[MENU] Menu já mostrado para ${from}`);
+    console.log(`[MENU] Menu já mostrado para ${from}, pulando`);
+    return;
+  }
+
+  if (!isConnected) {
+    console.log(`[MENU] ❌ Não conectado! Pulando envio de menu`);
     return;
   }
 
@@ -544,9 +572,10 @@ const showMenu = async (from, isForced = false) => {
     await client.sendMessage(from, message, { parseVcard: false });
     
     userMenuStates.set(from, Date.now());
-    console.log(`[MENU] ✅ Menu enviado para ${from}`);
+    console.log(`[MENU] ✅ Menu enviado com sucesso para ${from} (Total: ${userMenuStates.size})`);
   } catch (err) {
     console.error(`[MENU] ❌ Erro ao enviar menu para ${from}:`, err.message);
+    console.error(err.stack);
   }
 };
 
@@ -578,6 +607,11 @@ async function handleMessage(msg) {
   const text = msg.body ? msg.body.trim().toLowerCase() : "";
 
   try {
+    // Ignorar mensagens vazias
+    if (!text) {
+      return;
+    }
+
     // Ignorar grupos
     const chat = await msg.getChat();
     if (chat.isGroup) {
@@ -585,43 +619,56 @@ async function handleMessage(msg) {
       return;
     }
 
-    // Debouncing
+    // Debouncing melhorado
     const msgKey = `${from}:${msg.timestamp}`;
     const now = Date.now();
     
     if (processedMessages.has(msgKey)) {
-      const lastTime = processedMessages.get(msgKey);
-      if (now - lastTime < DEBOUNCE_TIMEOUT) {
-        console.log(`[MSG] Ignorando duplicata: ${from}`);
-        return;
-      }
+      console.log(`[MSG] Ignoring duplicate: ${from}`);
+      return;
     }
 
     processedMessages.set(msgKey, now);
-    console.log(`[MSG] De ${from}: "${text}"`);
+    
+    // Log com mais detalhes
+    console.log(`[MSG] ✅ De ${from}: "${text}" (${msg.timestamp})`);
+    console.log(`[MSG] Stats - Usuários: ${userMenuStates.size}, Processadas: ${processedMessages.size}`);
 
     // Verificar palavras-chave do menu
-    const menuKeywords = /^(menu|oi|olá|ola|bom dia|boa tarde|boa noite)$/i;
+    const menuKeywords = /^(menu|oi|olá|ola|bom dia|boa tarde|boa noite|hi|hello|start)$/i;
     
     if (menuKeywords.test(text)) {
+      console.log(`[MSG] Mostrando menu para ${from}`);
       await showMenu(from, true);
       return;
     }
 
     // Primeira mensagem
     if (!userMenuStates.has(from)) {
+      console.log(`[MSG] Primeira mensagem de ${from}, mostrando menu`);
       await showMenu(from, false);
       return;
     }
 
     // Processar opção
     if (/^[1-4]$/.test(text)) {
+      console.log(`[MSG] Processando opção ${text} de ${from}`);
       const businessHours = isTimeInBusinessHours();
       await handleMessageOption(text, from, businessHours);
+    } else {
+      // Mensagem que não é número - mostrar menu novamente
+      console.log(`[MSG] Opção inválida de ${from}, mostrando menu`);
+      await showMenu(from, true);
     }
 
   } catch (err) {
     console.error(`[MSG] ❌ Erro ao processar mensagem de ${from}:`, err.message);
+    console.error(err.stack);
+    try {
+      await client.sendMessage(from, "❌ Desculpe, ocorreu um erro. Digite *MENU* para reiniciar.");
+    } catch (sendErr) {
+      console.error(`[MSG] Erro ao enviar mensagem de erro:`, sendErr.message);
+    }
   }
 }
 
