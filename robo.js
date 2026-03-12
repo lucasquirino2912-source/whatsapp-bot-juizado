@@ -90,6 +90,7 @@ let client = new Client(createClientConfig());
 // VARIÁVEIS DE CONTROLE
 // =====================================
 let msgListenerRegistered = false;
+let messageListenerInitialized = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const INITIAL_RECONNECT_DELAY = 5000;
@@ -156,9 +157,60 @@ const destroyClient = async () => {
 };
 
 const recreateClient = () => {
+  messageListenerInitialized = false; // Reset flag
   client = new Client(createClientConfig());
   setupEventHandlers();
+  console.log("[RECREATE] Novo cliente criado com listeners configurados");
 };
+
+// =====================================
+// FORÇA LISTENER DE MENSAGENS - ROBUSTA
+// =====================================
+const forceMessageListener = () => {
+  if (messageListenerInitialized || !client) return;
+  
+  console.log("[LISTENER] 🔧 Forçando registração de listener de mensagens...");
+  
+  try {
+    client.removeAllListeners('message');
+  } catch (err) {
+    console.log("[LISTENER] Info: sem listeners anteriores");
+  }
+  
+  // Registrar listener com máxima robustez
+  client.on('message', async (msg) => {
+    try {
+      if (!msg || !msg.from) return;
+      
+      if (!msgListenerRegistered) {
+        msgListenerRegistered = true;
+        console.log(`[LISTENER] ✅ ATIVADO - Recebendo mensagens do WhatsApp!`);
+      }
+      
+      console.log(`[MSG] Recebido de ${msg.from}: "${msg.body}"`);
+      await handleMessage(msg);
+    } catch (err) {
+      console.error("[LISTENER] ❌ Erro ao processar mensagem:", err.message);
+    }
+  });
+  
+  messageListenerInitialized = true;
+  msgListenerRegistered = false; // Reset flag para detectar primeira mensagem
+  console.log("[LISTENER] ✅ Listener registrado com sucesso!");
+};
+
+// =====================================
+// VERIFICAÇÃO PERIÓDICA DE LISTENER
+// =====================================
+setInterval(() => {
+  if (!isConnected || !client) return;
+  
+  // Força listener se não estiver inicializado
+  if (!messageListenerInitialized) {
+    console.log("[CHECK] Detectado listener não inicializado - refixando...");
+    forceMessageListener();
+  }
+}, 5000); // Check a cada 5 segundos
 
 // =====================================
 // CONFIGURAÇÃO DE EVENTOS
@@ -178,7 +230,9 @@ const setupEventHandlers = () => {
 
   client.on("authenticated", () => {
     statusMessage = "Autenticado com sucesso";
-    console.log("✅ Autenticado com sucesso!");
+    console.log("✅ Autenticado!");
+    // Também força listener na autenticação
+    forceMessageListener();
   });
 
   client.on("ready", () => {
@@ -189,27 +243,22 @@ const setupEventHandlers = () => {
     msgListenerRegistered = false;
     console.log("✅ Cliente pronto! Usuário:", client.info?.pushname);
     
+    // FORÇA listener de mensagens
+    console.log("[READY] Forçando listener de mensagens...");
+    forceMessageListener();
+    
     // Inicia Keep-Alive otimizado
     startKeepAlive();
   });
 
-  // CRITICAL: Registrar listener de mensagens com tratamento de erro
-  client.on("message", async (msg) => {
-    if (!msgListenerRegistered) {
-      msgListenerRegistered = true;
-      console.log("[LISTENER] ✅ Listener ativado - pronto para receber mensagens");
-    }
-    try {
-      await handleMessage(msg);
-    } catch (err) {
-      console.error("[LISTENER] Erro ao processar eventos de mensagem:", err.message);
-    }
-  });
+  // REMOVIDO: Listener duplicado - agora usando forceMessageListener() em ready e authenticated
+  // client.on message está agora em forceMessageListener()
 
   client.on("disconnect", async (reason) => {
     isConnected = false;
     statusMessage = `Desconectado: ${reason}`;
     msgListenerRegistered = false;
+    messageListenerInitialized = false; // Reset listener flag
     stopKeepAlive();
     console.log("⚠️ Desconectado:", reason);
     await attemptReconnect();
@@ -728,9 +777,9 @@ async function handleMessage(msg) {
 }
 
 function registerMessageListener() {
-  // Esta função é agora apenas um placeholder
-  // O listener de mensagens é registrado diretamente no setupEventHandlers()
-  console.log("[LISTENER] Função deprecated - listener registrado em setupEventHandlers");
+  // Função deprecated - agora usar forceMessageListener()
+  console.log("[LISTENER] registerMessageListener() deprecated - use forceMessageListener()");
+  forceMessageListener();
 }
 
 // =====================================
