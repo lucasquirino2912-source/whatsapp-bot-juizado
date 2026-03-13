@@ -20,6 +20,8 @@ const CACHE_DIR = path.join(__dirname, '.wwebjs_cache');
 // =====================================
 const app = express();
 let lastQr = null;
+let lastQrTime = 0; // Timestamp do último QR salvo
+const QR_UPDATE_INTERVAL = 60000; // Intervalo mínimo entre atualizações (60s)
 let statusMessage = "Iniciando sistema...";
 let isConnected = false;
 
@@ -174,7 +176,17 @@ const setupEventHandlers = () => {
   });
 
   client.on("qr", (qr) => {
+    const now = Date.now();
+    const timeSinceLastQr = now - lastQrTime;
+    
+    // Só atualiza o QR se passou tempo suficiente
+    if (timeSinceLastQr < QR_UPDATE_INTERVAL) {
+      console.log(`[QR] Ignorando novo QR (atualizado há ${Math.round(timeSinceLastQr/1000)}s)`);
+      return;
+    }
+    
     lastQr = qr;
+    lastQrTime = now;
     statusMessage = "Aguardando leitura do QR Code";
     console.log("📲 QR Code gerado! Aceda a http://localhost:3000/qr para escanear");
     qrcode.generate(qr, { small: true });
@@ -189,6 +201,7 @@ const setupEventHandlers = () => {
 
   client.on("ready", () => {
     lastQr = null;
+    lastQrTime = 0; // Reset timestamp
     isConnected = true;
     statusMessage = "Conectado e pronto!";
     reconnectAttempts = 0;
