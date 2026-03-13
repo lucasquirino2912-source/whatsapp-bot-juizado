@@ -241,6 +241,7 @@ const setupEventHandlers = () => {
   });
 
   client.on("authenticated", () => {
+    lastQr = null; // CRÍTICO: Limpa QR imediatamente!
     statusMessage = "Autenticado com sucesso";
     console.log("✅ Autenticado!");
     messageListenerInitialized = false; // Reset para reforçar
@@ -444,9 +445,34 @@ app.get('/qr', (req, res) => {
             <p style="color:#666; margin:10px 0; font-size:14px;">Abra WhatsApp no seu celular e aponte a câmera para o código</p>
             <img src="${url}" style="border:2px solid #128c7e; margin:20px 0; width:280px; height:280px; border-radius:10px;" />
             <p style="color:#666; margin:15px 0; font-size:14px;">Status: <strong>${statusMessage}</strong></p>
-            <p style="font-size:12px; color:#999;">🔄 A página recarrega automaticamente a cada 30 segundos</p>
+            <p style="font-size:12px; color:#999;">🔄 Detectando conexão automaticamente...</p>
           </div>
-          <script>setTimeout(() => location.reload(), 30000);</script>
+          <script>
+            // Poll a cada 5 segundos para detectar conexão
+            let pollCount = 0;
+            const checkStatus = setInterval(async () => {
+              try {
+                pollCount++;
+                const response = await fetch('/status');
+                const data = await response.json();
+                
+                // Se conectado, recarrega para mostrar tela de sucesso
+                if (data.connected) {
+                  clearInterval(checkStatus);
+                  console.log('✅ Bot conectado detectado! Recarregando...');
+                  location.reload();
+                }
+              } catch (err) {
+                console.error('Erro ao verificar status:', err);
+              }
+              
+              // Para de tentar depois de 5 minutos (60 tentativas x 5s)
+              if (pollCount >= 60) {
+                clearInterval(checkStatus);
+                console.log('⏰ Timeout de verificação atingido');
+              }
+            }, 5000); // 5 segundos
+          </script>
         </body>
       </html>
     `);
