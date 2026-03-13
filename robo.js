@@ -382,18 +382,54 @@ setInterval(() => {
 // ROTAS DO SERVIDOR WEB
 // =====================================
 app.get('/qr', (req, res) => {
+  // Se já está conectado, mostrar status de sucesso
+  if (isConnected && !lastQr) {
+    const sessionInfo = loadSessionInfo();
+    const connectedUser = sessionInfo?.name || sessionInfo?.number || 'desconhecido';
+    
+    return res.send(`
+      <html>
+        <body style="display:flex; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; flex-direction:column; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); margin:0;">
+          <div style="background:white; padding:50px; border-radius:20px; box-shadow:0 8px 20px rgba(0,0,0,0.3); text-align:center; max-width:500px;">
+            <h1 style="color:#25D366; font-size:50px; margin:0;">✅</h1>
+            <h2 style="color:#128c7e; margin-top:20px;">Bot Conectado!</h2>
+            <p style="color:#666; font-size:18px; font-weight:bold; margin:20px 0;">
+              👤 Conectado como: <strong>${connectedUser}</strong>
+            </p>
+            <p style="color:#999; margin:15px 0;">
+              📱 Status: <strong style="color:#25D366;">Pronto para receber mensagens</strong>
+            </p>
+            <p style="color:#999; font-size:14px; margin-top:30px;">
+              💬 Você pode enviar mensagens para o WhatsApp agora
+            </p>
+            <div style="margin-top:30px; padding-top:20px; border-top:1px solid #eee;">
+              <button onclick="location.reload()" style="padding:12px 30px; background:#128c7e; color:white; border:none; border-radius:8px; cursor:pointer; font-size:16px; font-weight:bold;">🔄 Recarregar Status</button>
+              <a href="/session-info" style="display:inline-block; margin-left:10px; padding:12px 30px; background:#667eea; color:white; border:none; border-radius:8px; cursor:pointer; font-size:16px; font-weight:bold; text-decoration:none;">ℹ️ Ver Detalhes</a>
+            </div>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+  
+  // Se não há QR, mostrar status de inicialização
   if (!lastQr) {
     return res.send(`
       <html>
-        <body style="display:flex; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; flex-direction:column;">
-          <h2>${statusMessage}</h2>
-          <p>Se o bot estiver "Iniciando", aguarde até 2 minutos e recarregue a página.</p>
-          <button onclick="location.reload()" style="padding:10px 20px; cursor:pointer; font-size:16px;">🔄 Recarregar</button>
+        <body style="display:flex; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; flex-direction:column; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); margin:0;">
+          <div style="background:white; padding:50px; border-radius:20px; box-shadow:0 8px 20px rgba(0,0,0,0.3); text-align:center;">
+            <div style="font-size:40px; margin-bottom:20px;">⏳</div>
+            <h2 style="color:#666; margin:0;">Inicializando...</h2>
+            <p style="color:#999; margin:15px 0;">Status: <strong>${statusMessage}</strong></p>
+            <p style="font-size:14px; color:#999; margin:20px 0;">⏰ Se o bot estiver "Iniciando", aguarde até 2 minutos e recarregue a página.</p>
+            <button onclick="location.reload()" style="padding:10px 20px; background:#667eea; color:white; border:none; border-radius:8px; cursor:pointer; font-size:16px; margin-top:20px; font-weight:bold;">🔄 Recarregar</button>
+          </div>
         </body>
       </html>
     `);
   }
 
+  // Se há QR, exibir para escanear
   qrcodeImage.toDataURL(lastQr, (err, url) => {
     if (err) {
       return res.status(500).send("Erro ao gerar imagem do QR Code");
@@ -402,12 +438,13 @@ app.get('/qr', (req, res) => {
     res.send(`
       <html>
         <head><title>QR Code WhatsApp</title></head>
-        <body style="display:flex; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; background-color:#f0f2f5;">
-          <div style="background:white; padding:40px; border-radius:20px; box-shadow:0 4px 15px rgba(0,0,0,0.1); text-align:center;">
-            <h2 style="color:#128c7e;">Digitalize o QR Code:</h2>
-            <img src="${url}" style="border:1px solid #ddd; margin:20px 0; width:300px; height:300px;" />
-            <p style="color:#666;">Status: <strong>${statusMessage}</strong></p>
-            <p style="font-size:0.9em; color:#999;">Atualizando a cada 30 segundos...</p>
+        <body style="display:flex; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); margin:0;">
+          <div style="background:white; padding:40px; border-radius:20px; box-shadow:0 8px 20px rgba(0,0,0,0.3); text-align:center;">
+            <h2 style="color:#128c7e; margin-top:0;">📲 Digitalize o QR Code</h2>
+            <p style="color:#666; margin:10px 0; font-size:14px;">Abra WhatsApp no seu celular e aponte a câmera para o código</p>
+            <img src="${url}" style="border:2px solid #128c7e; margin:20px 0; width:280px; height:280px; border-radius:10px;" />
+            <p style="color:#666; margin:15px 0; font-size:14px;">Status: <strong>${statusMessage}</strong></p>
+            <p style="font-size:12px; color:#999;">🔄 A página recarrega automaticamente a cada 30 segundos</p>
           </div>
           <script>setTimeout(() => location.reload(), 30000);</script>
         </body>
