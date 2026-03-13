@@ -160,6 +160,54 @@ const destroyClient = async () => {
 };
 
 // =====================================
+// RASTREAMENTO DE SESSÃO E NÚMERO
+// =====================================
+const SESSION_FILE = path.join(__dirname, '.session_info');
+
+const hasExistingSession = () => {
+  try {
+    // Verificar se diretório de autenticação existe
+    if (fs.existsSync(AUTH_DIR)) {
+      const files = fs.readdirSync(AUTH_DIR);
+      if (files.length > 0) {
+        console.log("[SESSION] ✅ Sessão automática detectada! Reconectando sem QR...");
+        return true;
+      }
+    }
+  } catch (err) {
+    console.log("[SESSION] Info: Nenhuma sessão anterior encontrada");
+  }
+  return false;
+};
+
+const saveSessionInfo = (number, name) => {
+  try {
+    const info = {
+      number: number || 'desconhecido',
+      name: name || 'sem nome',
+      connectedAt: new Date().toISOString(),
+      lastSeen: new Date().toISOString()
+    };
+    fs.writeFileSync(SESSION_FILE, JSON.stringify(info, null, 2));
+    console.log(`[SESSION] ✅ Sessão salva: ${number}`);
+  } catch (err) {
+    console.warn("[SESSION] Erro ao salvar info:", err.message);
+  }
+};
+
+const loadSessionInfo = () => {
+  try {
+    if (fs.existsSync(SESSION_FILE)) {
+      const data = fs.readFileSync(SESSION_FILE, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.log("[SESSION] Info: Arquivo de sessão não encontrado");
+  }
+  return null;
+};
+
+// =====================================
 // CONFIGURAÇÃO DE EVENTOS - CENTRALIZADA
 // =====================================
 const setupEventHandlers = () => {
@@ -207,7 +255,12 @@ const setupEventHandlers = () => {
     reconnectAttempts = 0;
     msgListenerRegistered = false;
     messageListenerInitialized = false; // Reset para reforçar listener
-    console.log("✅ Cliente pronto! Usuário:", client.info?.pushname);
+    
+    // Salvar informações da sessão conectada
+    const pushname = client.info?.pushname || 'sem nome';
+    const number = client.info?.wid?._serialized || 'desconhecido';
+    saveSessionInfo(number, pushname);
+    console.log("✅ Cliente pronto! Usuário:", pushname);
     
     // CRÍTICO: Forçar listener IMEDIATAMENTE
     console.log("[READY] 🔧 Forçando listener (ready event)...");
@@ -399,10 +452,13 @@ app.get('/debug', (req, res) => {
 });
 
 app.get('/status', (req, res) => {
+  const sessionInfo = loadSessionInfo();
   res.json({
     status: statusMessage,
     connected: isConnected,
     hasQr: !!lastQr,
+    hasExistingSession: hasExistingSession(),
+    sessionInfo: sessionInfo || { info: 'Nenhuma sessão ativa' },
     timestamp: new Date().toISOString()
   });
 });
@@ -422,6 +478,37 @@ app.get('/reset', (req, res) => {
     recreateClient();
     initializeClient();
     res.json({ status: "Reinicializando. Acesse /qr em 30 segundos." });
+  }).catch(err => {
+    res.status(500).json({ error: err.message });
+  });
+});
+
+app.get('/session-info', (req, res) => {
+  const sessionInfo = loadSessionInfo();
+  const hasSession = hasExistingSession();
+  
+  res.json({
+    hasActiveSession: hasSession,
+    sessionData: sessionInfo,
+    note: hasSession 
+      ? "✅ Sessão automática detectada. Próximas conexões não precisaram de QR Code."
+      : "❌ Nenhuma sessão anterior. QR Code será necessário."
+  });
+});
+
+app.get('/reset-qr-only', (req, res) => {
+  console.log("[RESET-QR] Limpando apenas autenticação para novo QR Code...");
+  
+  destroyClient().then(async () => {
+    await delay(500);
+    await cleanupSession(true);
+    await delay(500);
+    lastQr = null;
+    lastQrTime = 0;
+    
+    recreateClient();
+    initializeClient();
+    res.json({ status: "QR Code limpo. Acesse /qr em 10 segundos para novo scan." });
   }).catch(err => {
     res.status(500).json({ error: err.message });
   });
@@ -486,7 +573,17 @@ const attemptReconnect = async () => {
 // =====================================
 const initializeClient = async () => {
   try {
+    const hasSession = hasExistingSession();
+    
     console.log("[INIT] Inicializando cliente WhatsApp...");
+    if (hasSession) {
+      console.log("[INIT] 🔄 Sessão anterior detectada - Reconectando automaticamente (sem QR)...");
+      const sessionInfo = loadSessionInfo();
+      console.log("[INIT] Conectando como:", sessionInfo?.name || sessionInfo?.number || 'desconhecido');
+    } else {
+      console.log("[INIT] ℹ️  Nenhuma sessão anterior - QR Code será solicitado");
+    }
+    
     statusMessage = "Aguardando autenticação...";
     isConnected = false;
     msgListenerRegistered = false;
