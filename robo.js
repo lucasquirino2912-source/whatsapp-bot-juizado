@@ -89,14 +89,13 @@ const createClientConfig = () => ({
 let client = new Client(createClientConfig());
 
 // =====================================
-// VARIÁVEIS DE CONTROLE
+// VARIÁVEIS DE CONTROLE - SIMPLIFICADAS
 // =====================================
-let msgListenerRegistered = false;
-let messageListenerInitialized = false;
 let reconnectAttempts = 0;
-let eventHandlersSetup = false;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const INITIAL_RECONNECT_DELAY = 5000;
+let messageListenerActive = false; // Única fonte de verdade
+let eventHandlersSetup = false;
 
 // =====================================
 // ESTRUTURAS DE DADOS
@@ -115,7 +114,13 @@ const MEMORY_RESTART_THRESHOLD = 200;
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const cleanupSession = async (force = false) => {
-  console.log("[CLEANUP] Limpando sessão anterior...");
+  console.log("[CLEANUP] Limpando memória e sessão anterior...");
+  
+  // CRÍTICO: Limpar dados em memória
+  messageListenerActive = false;
+  userMenuStates.clear();
+  processedMessages.clear();
+  console.log("[CLEANUP] ✅ Memória em RAM limpada");
   
   // Remover auth
   try {
@@ -138,21 +143,35 @@ const cleanupSession = async (force = false) => {
   }
 
   if (force) {
-    console.log("[CLEANUP] Limpeza completa concluída");
+    console.log("[CLEANUP] Limpeza completa concluída com sucesso");
   }
 };
 
 const destroyClient = async () => {
   try {
-    if (client && client.pupBrowser) {
-      console.log("[DESTROY] Fechando navegador para liberar RAM...");
-      await client.destroy();
-      console.log("[DESTROY] ✅ Cliente destruído com sucesso");
-      // Forçar garbage collection se disponível
-      if (global.gc) {
-        console.log("[GC] Forçando garbage collection...");
-        global.gc();
+    messageListenerActive = false; // Desativar listener ANTES de destruir
+    
+    if (client) {
+      // Remover TODOS os listeners do cliente
+      try {
+        client.removeAllListeners();
+        console.log("[DESTROY] ✅ Todos os listeners removidos");
+      } catch (e) {
+        console.log("[DESTROY] Info: Nenhum listener para remover");
       }
+      
+      // Destruir cliente
+      if (client.pupBrowser) {
+        console.log("[DESTROY] Fechando navegador para liberar RAM...");
+        await client.destroy();
+      }
+      console.log("[DESTROY] ✅ Cliente destruído com sucesso");
+    }
+    
+    // Forçar garbage collection
+    if (global.gc) {
+      global.gc();
+      console.log("[GC] Garbage collection executado");
     }
   } catch (err) {
     console.warn("[DESTROY] Erro ao destruir cliente:", err.message);
@@ -241,45 +260,40 @@ const setupEventHandlers = () => {
   });
 
   client.on("authenticated", () => {
-    lastQr = null; // CRÍTICO: Limpa QR imediatamente!
+    lastQr = null;
+    lastQrTime = 0;
     statusMessage = "Autenticado com sucesso";
-    console.log("✅ Autenticado!");
-    messageListenerInitialized = false; // Reset para reforçar
-    forceMessageListener();
+    console.log("✅ Autenticado! Aguardando evento 'ready'...");
+    // NÃO registrar listener aqui - esperar pelo evento 'ready'
   });
 
   client.on("ready", () => {
     lastQr = null;
-    lastQrTime = 0; // Reset timestamp
+    lastQrTime = 0;
     isConnected = true;
     statusMessage = "Conectado e pronto!";
     reconnectAttempts = 0;
-    msgListenerRegistered = false;
-    messageListenerInitialized = false; // Reset para reforçar listener
     
     // Salvar informações da sessão conectada
     const pushname = client.info?.pushname || 'sem nome';
     const number = client.info?.wid?._serialized || 'desconhecido';
     saveSessionInfo(number, pushname);
-    console.log("✅ Cliente pronto! Usuário:", pushname);
+    console.log("✅ [READY] Cliente pronto! Usuário:", pushname);
     
-    // CRÍTICO: Forçar listener IMEDIATAMENTE
-    console.log("[READY] 🔧 Forçando listener (ready event)...");
-    setTimeout(() => {
-      forceMessageListener();
-    }, 100);
+    // CRÍTICO: Registrar listener AGORA que client está pronto
+    console.log("[READY] 🔧 Registrando listener de mensagens...");
+    setupMessageListener();
     
     startKeepAlive();
   });
 
   client.on("disconnect", async (reason) => {
     isConnected = false;
+    messageListenerActive = false;
     statusMessage = `Desconectado: ${reason}`;
-    msgListenerRegistered = false;
-    messageListenerInitialized = false;
-    eventHandlersSetup = false; // Reset status
+    eventHandlersSetup = false;
     stopKeepAlive();
-    console.log("⚠️ Desconectado:", reason);
+    console.log("⚠️ [DISCONNECT] Desconectado:", reason);
     await attemptReconnect();
   });
 
@@ -300,62 +314,66 @@ const setupEventHandlers = () => {
 };
 
 const recreateClient = () => {
-  console.log("[RECREATE] Recriando client...");
-  messageListenerInitialized = false;
-  msgListenerRegistered = false;
+  console.log("[RECREATE] Recriando cliente...");
+  messageListenerActive = false;
   eventHandlersSetup = false;
   client = new Client(createClientConfig());
-  setupEventHandlers();
-  console.log("[RECREATE] ✅ Novo cliente criado com listeners");
+  console.log("[RECREATE] ✅ Novo cliente criado");
 };
 
 // =====================================
-// FORÇA LISTENER DE MENSAGENS - ROBUSTA
+// CONFIGURAÇÃO DE LISTENER DE MENSAGENS
 // =====================================
-const forceMessageListener = () => {
+const setupMessageListener = () => {
   if (!client) {
     console.log("[LISTENER] ❌ Client não existe, pulando listener");
     return;
   }
   
-  // NÃO RETORNAR CEDO - SEMPRE FORÇAR O LISTENER
-  // (messageListenerInitialized pode estar true mas listener pode ter sido desanexado)
+  if (messageListenerActive) {
+    console.log("[LISTENER] ⚠️ Listener já ativo, pulando");
+    return;
+  }
   
-  console.log("[LISTENER] 🔧 Forçando registração robusta de listener de mensagens...");
+  console.log("[LISTENER] 🔧 Configurando listener de mensagens...");
   
   try {
-    // CRÍTICO: Remover TODOS os listeners antigos primeiro
+    // Remover listeners antigos
     client.removeAllListeners('message');
-    console.log("[LISTENER] Listeners antigos removidos");
-  } catch (err) {
+  } catch (e) {
     console.log("[LISTENER] Info: nenhum listener anterior");
   }
   
-  // Registrar listener fresco com máxima robustez
+  // Registrar novo listener
   try {
     client.on('message', async (msg) => {
+      if (!msg || !msg.from) {
+        console.log("[MSG] ❌ Mensagem vazia ou sem remetente");
+        return;
+      }
+      
+      console.log(`[MSG] ✅ Recebido de ${msg.from}: "${msg.body}" (timestamp: ${msg.timestamp})`);
+      
       try {
-        if (!msg || !msg.from) return;
-        
-        if (!msgListenerRegistered) {
-          msgListenerRegistered = true;
-          console.log(`[LISTENER] ✅✅✅ ATIVADO - Recebendo mensagens do WhatsApp!`);
-        }
-        
-        console.log(`[MSG] Recebido de ${msg.from}: "${msg.body}"`);
         await handleMessage(msg);
       } catch (err) {
-        console.error("[LISTENER] ❌ Erro ao processar mensagem:", err.message);
+        console.error("[MSG] ❌ Erro ao processar mensagem:", err.message);
+        console.error(err.stack);
       }
     });
     
-    messageListenerInitialized = true;
-    msgListenerRegistered = false;
+    messageListenerActive = true;
     console.log("[LISTENER] ✅ Listener registrado e ativo!");
   } catch (err) {
     console.error("[LISTENER] ❌ Erro ao registrar listener:", err.message);
-    messageListenerInitialized = false;
+    messageListenerActive = false;
   }
+};
+
+// Alias para compatibilidade
+const forceMessageListener = () => {
+  console.log("[LISTENER] forceMessageListener() chamado, redirecionando para setupMessageListener()");
+  setupMessageListener();
 };
 
 // =====================================
@@ -366,18 +384,17 @@ setInterval(() => {
   if (!isConnected || !client) return;
   
   const now = Date.now();
-  if (now - lastListenerCheck < 10000) return; // Check a cada 10 segundos
+  if (now - lastListenerCheck < 15000) return; // Check a cada 15 segundos
   lastListenerCheck = now;
   
-  // Verificar e reforçar listener regularmente
-  if (!messageListenerInitialized) {
-    console.log("[CHECK-LISTENER] ⚠️ Listener não inicializado - reforçando...");
-    messageListenerInitialized = false; // Force reinicialização
-    forceMessageListener();
+  // Verificar listener regularmente
+  if (!messageListenerActive) {
+    console.log("[CHECK-LISTENER] ⚠️ Listener não está ativo - reiniciando...");
+    setupMessageListener();
   } else {
     console.log("[CHECK-LISTENER] ✅ Listener ativo e funcionando");
   }
-}, 10000); // Check a cada 10 segundos
+}, 15000);
 
 // =====================================
 // ROTAS DO SERVIDOR WEB
@@ -529,15 +546,12 @@ app.get('/status', (req, res) => {
 app.get('/reset', (req, res) => {
   console.log("[RESET] Reinicializando cliente manualmente...");
   statusMessage = "Reinicializando...";
-  
-  userMenuStates.clear();
-  processedMessages.clear();
-  msgListenerRegistered = false;
+  messageListenerActive = false;
   
   destroyClient().then(async () => {
     await delay(1000);
-    await cleanupSession();
-    await delay(1000);
+    await cleanupSession(true);
+    await delay(2000);
     recreateClient();
     initializeClient();
     res.json({ status: "Reinicializando. Acesse /qr em 30 segundos." });
@@ -561,17 +575,18 @@ app.get('/session-info', (req, res) => {
 
 app.get('/reset-qr-only', (req, res) => {
   console.log("[RESET-QR] Limpando apenas autenticação para novo QR Code...");
+  messageListenerActive = false;
   
   destroyClient().then(async () => {
-    await delay(500);
+    await delay(1000);
     await cleanupSession(true);
-    await delay(500);
+    await delay(2000);
     lastQr = null;
     lastQrTime = 0;
     
     recreateClient();
     initializeClient();
-    res.json({ status: "QR Code limpo. Acesse /qr em 10 segundos para novo scan." });
+    res.json({ status: "QR Code limpo. Acesse /qr em 30 segundos para novo scan." });
   }).catch(err => {
     res.status(500).json({ error: err.message });
   });
@@ -649,7 +664,7 @@ const initializeClient = async () => {
     
     statusMessage = "Aguardando autenticação...";
     isConnected = false;
-    msgListenerRegistered = false;
+    messageListenerActive = false;
     reconnectAttempts = 0;
     
     // CRÍTICO: Registrar handlers ANTES de inicializar
@@ -661,7 +676,7 @@ const initializeClient = async () => {
     console.log("[INIT] Chamando client.initialize()...");
     await client.initialize();
     
-    console.log("[INIT] ✅ Cliente inicializado com sucesso!");
+    console.log("[INIT] ✅ Cliente inicializado!");
     console.log("[INIT] Aguardando evento 'ready'...");
     
   } catch (err) {
@@ -681,33 +696,29 @@ setInterval(async () => {
   if (!client) return;
   
   const now = Date.now();
-  if (now - lastConnectionCheck < 2000) return; // Evitar spam de logs
+  if (now - lastConnectionCheck < 3000) return; // Check a cada 3 segundos
   lastConnectionCheck = now;
   
   try {
-    // Verifica se o cliente está pronto
     const state = client.info;
     const hasPhone = state && state.pushname;
     
     if (hasPhone && !isConnected) {
-      // Cliente autenticado mas isConnected ainda é false - FORÇAR UPDATE
-      lastQr = null;
+      // Cliente pronto
       isConnected = true;
       statusMessage = "Conectado e pronto!";
-      reconnectAttempts = 0;
-      msgListenerRegistered = false;
-      console.log("✅ [CONNECTION CHECK] Cliente autenticado e pronto! Nome:", state.pushname);
+      console.log("✅ [CONNECTION CHECK] Cliente pronto:", state.pushname);
     } else if (!hasPhone && isConnected) {
       // Desconectou
       isConnected = false;
-      msgListenerRegistered = false;
+      messageListenerActive = false;
       statusMessage = "Conexão perdida - tentando reconectar";
       console.log("⚠️ [CONNECTION CHECK] Cliente desconectado");
     }
   } catch (err) {
-    console.error("[CONNECTION CHECK] Erro ao verificar conexão:", err.message);
+    console.error("[CONNECTION CHECK] Erro ao verificar:", err.message);
   }
-}, 2000);
+}, 3000);
 
 // =====================================
 // EXCEPTION HANDLERS
