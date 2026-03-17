@@ -70,7 +70,9 @@ const getPuppeteerArgs = () => [
   "--disable-prompt-on-repost",
   "--disable-sync",
   "--enable-automation",
-  "--js-flags='--max-old-space-size=128'",
+  "--js-flags='--max-old-space-size=96'",  // Reduzido de 128 para 96MB
+  "--disable-remote-fonts",                 // Novo: desabilitar fontes remotas
+  "--disable-component-extensions-with-background-pages", // Novo
 ];
 
 const createClientConfig = () => ({
@@ -83,7 +85,7 @@ const createClientConfig = () => ({
   // CRÍTICO: Usar webVersionCache remoto para evitar erro de navegador não suportado
   webVersionCache: {
     type: 'remote',
-    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2426.6.html',
   },
   restartOnCrash: true,
 });
@@ -105,11 +107,11 @@ let messagesReceived = 0; // Contador para debug
 // =====================================
 const userMenuStates = new Map(); // Usuários que já viram o menu
 const processedMessages = new Map(); // Mensagens processadas (debounce)
-const DEBOUNCE_TIMEOUT = 2000;
-const MAX_CACHED_MESSAGES = 20;
-const MAX_USERS_MENU = 100;
-const USER_MENU_EXPIRY = 3600000;
-const MEMORY_RESTART_THRESHOLD = 200;
+const DEBOUNCE_TIMEOUT = 1000;     // Reduzido de 2s para 1s (mais agressivo)
+const MAX_CACHED_MESSAGES = 10;     // Reduzido de 20 para 10 (metade)
+const MAX_USERS_MENU = 50;          // Reduzido de 100 para 50
+const USER_MENU_EXPIRY = 1800000;   // Reduzido de 1h para 30min
+const MEMORY_RESTART_THRESHOLD = 300; // Restart com 300MB (não 200MB), mais conservador
 
 // =====================================
 // FUNÇÕES UTILITÁRIAS
@@ -281,8 +283,11 @@ const setupEventHandlers = () => {
     qrGeneratedTime = 0;
     statusMessage = "Autenticado com sucesso";
     console.log("");
+    console.log("═════════════════════════════════════════════════════════════");
     console.log("✅✅✅ AUTENTICADO COM SUCESSO! ✅✅✅");
+    console.log("═════════════════════════════════════════════════════════════");
     console.log("Aguardando evento 'ready' para sincronizar dados...");
+    console.log("client.info:", JSON.stringify(client.info, null, 2));
     console.log("");
     // NÃO registrar listener aqui - esperar pelo evento 'ready'
   });
@@ -323,7 +328,11 @@ const setupEventHandlers = () => {
     statusMessage = `Desconectado: ${reason}`;
     eventHandlersSetup = false;
     stopKeepAlive();
+    console.log("");
+    console.log("═════════════════════════════════════════════════════════════");
     console.log("⚠️ [DISCONNECT] Desconectado:", reason);
+    console.log("═════════════════════════════════════════════════════════════");
+    console.log("");
     await attemptReconnect();
   });
 
@@ -331,13 +340,23 @@ const setupEventHandlers = () => {
     isConnected = false;
     messageListenerActive = false;
     statusMessage = "Falha na autenticação";
+    console.error("");
+    console.error("═════════════════════════════════════════════════════════════");
     console.error("❌ FALHA NA AUTENTICAÇÃO:", msg);
+    console.error("═════════════════════════════════════════════════════════════");
     console.error("⏱️  O QR pode ter expirado. Recarregue a página para novo QR Code.");
+    console.error("client.info:", JSON.stringify(client.info, null, 2));
+    console.error("");
     reconnectAttempts = 0;
   });
 
   client.on("error", (err) => {
+    console.error("");
+    console.error("═════════════════════════════════════════════════════════════");
     console.error("❌ Erro no cliente:", err.message);
+    console.error("Stack:", err.stack);
+    console.error("═════════════════════════════════════════════════════════════");
+    console.error("");
   });
   
   eventHandlersSetup = true;
@@ -812,6 +831,11 @@ const initializeClient = async () => {
     
     console.log("✅ Cliente inicializado com sucesso!");
     console.log("⏱️  Aguardando evento 'ready' para sincronizar sessão...");
+    console.log("Estado atual do cliente:", {
+      hasInfo: !!client.info,
+      pushname: client.info?.pushname,
+      number: client.info?.wid?._serialized
+    });
     console.log("");
     
   } catch (err) {
@@ -918,7 +942,7 @@ setInterval(async () => {
   const heap = Math.round(mem.heapUsed / 1024 / 1024);
   const heapPercent = Math.round((mem.heapUsed / mem.heapTotal) * 100);
 
-  // Limpeza de cache
+  // Limpeza agressiva de cache
   const agora = Date.now();
   let cleaned = 0;
   for (const [key, ts] of processedMessages.entries()) {
@@ -928,17 +952,29 @@ setInterval(async () => {
     }
   }
 
+  // Limpar se exceder limite
   if (processedMessages.size > MAX_CACHED_MESSAGES) {
     const antes = processedMessages.size;
     processedMessages.clear();
     cleaned = antes;
+    console.log(`[GC] Cache agressivamente limpo: ${antes} mensagens removidas`);
+  }
+
+  // Forçar garbage collection
+  if (heapPercent > 75 && global.gc) {
+    global.gc();
+    console.log(`[GC] Garbage collection forçado (Heap: ${heapPercent}%)`);
   }
 
   console.log(`[GC] RSS: ${rss}MB | Heap: ${heap}MB (${heapPercent}%) | Cache: ${processedMessages.size} | Users: ${userMenuStates.size}`);
 
-  // Restart automático se memória crítica
+  // Restart automático se memória crítica (300MB)
   if (rss > MEMORY_RESTART_THRESHOLD && isConnected) {
-    console.error(`❌ MEMÓRIA CRÍTICA: ${rss}MB! Reiniciando...`);
+    console.error(``);
+    console.error(`═════════════════════════════════════════════════════════════`);
+    console.error(`❌ MEMÓRIA CRÍTICA: ${rss}MB > ${MEMORY_RESTART_THRESHOLD}MB! Reiniciando...`);
+    console.error(`═════════════════════════════════════════════════════════════`);
+    console.error(``);
     isConnected = false;
     await destroyClient();
     await cleanupSession();
@@ -947,8 +983,9 @@ setInterval(async () => {
     initializeClient();
   }
 
-  if (heapPercent > 85) {
-    console.warn(`⚠️ Heap em ${heapPercent}%`);
+  // Warning se heap muito alto
+  if (heapPercent > 80) {
+    console.warn(`⚠️ HEAP ALTO: ${heapPercent}% - limpando cache agressivamente`);
     processedMessages.clear();
   }
 }, 5000);
@@ -960,6 +997,7 @@ setInterval(() => {
   const agora = Date.now();
   let removed = 0;
 
+  // Limpar usuários expirados
   for (const [user, ts] of userMenuStates.entries()) {
     if (agora - ts > USER_MENU_EXPIRY) {
       userMenuStates.delete(user);
@@ -967,10 +1005,17 @@ setInterval(() => {
     }
   }
 
-  if (removed > 0) {
-    console.log(`[GC] Removidos ${removed} usuários antigos do Menu`);
+  // Limpar cache de mensagens antigas
+  for (const [key, ts] of processedMessages.entries()) {
+    if (agora - ts > DEBOUNCE_TIMEOUT * 2) {
+      processedMessages.delete(key);
+    }
   }
-}, 60000);
+
+  if (removed > 0) {
+    console.log(`[GC] Removidos ${removed} usuários antigos do Menu | Cache: ${processedMessages.size}`);
+  }
+}, 30000); // Executar a cada 30s (não 60s)
 
 // =====================================
 // PROCESSAMENTO DE MENSAGENS
