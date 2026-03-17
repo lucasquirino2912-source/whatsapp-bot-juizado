@@ -82,12 +82,13 @@ const createClientConfig = () => ({
     args: getPuppeteerArgs(),
     executablePath: getChromiumPath(),
   },
-  // CRÍTICO: Usar webVersionCache remoto para evitar erro de navegador não suportado
+  // Tentar múltiplas versões do WhatsApp Web
   webVersionCache: {
     type: 'remote',
-    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2426.6.html',
+    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2430.9.html',
   },
   restartOnCrash: true,
+  bypassCSP: true,  // Novo: contornar CSP
 });
 
 let client = new Client(createClientConfig());
