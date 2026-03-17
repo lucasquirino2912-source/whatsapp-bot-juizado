@@ -22,8 +22,10 @@ const app = express();
 let lastQr = null;
 let lastQrTime = 0; // Timestamp do último QR salvo
 const QR_UPDATE_INTERVAL = 60000; // Intervalo mínimo entre atualizações (60s)
+const QR_TIMEOUT = 120000; // Timeout para QR expirar (2 minutos)
 let statusMessage = "Iniciando sistema...";
 let isConnected = false;
+let qrGeneratedTime = 0;
 
 // =====================================
 // DETECTOR DE CHROMIUM
@@ -254,22 +256,40 @@ const setupEventHandlers = () => {
     
     lastQr = qr;
     lastQrTime = now;
+    qrGeneratedTime = now;
     statusMessage = "Aguardando leitura do QR Code";
-    console.log("📲 QR Code gerado! Aceda a http://localhost:3000/qr para escanear");
+    console.log("");
+    console.log("═════════════════════════════════════════════════════════════");
+    console.log("📲 QR CODE GERADO! Escaneie agora:");
+    console.log("═════════════════════════════════════════════════════════════");
+    console.log("");
+    console.log("Abra em seu navegador: http://localhost:3000/qr");
+    console.log("");
+    console.log("OU digitalize com WhatsApp Web:");
+    console.log("");
     qrcode.generate(qr, { small: true });
+    console.log("");
+    console.log("⏱️  QR válido por 2 minutos");
+    console.log("═════════════════════════════════════════════════════════════");
+    console.log("");
   });
 
   client.on("authenticated", () => {
     lastQr = null;
     lastQrTime = 0;
+    qrGeneratedTime = 0;
     statusMessage = "Autenticado com sucesso";
-    console.log("✅ Autenticado! Aguardando evento 'ready'...");
+    console.log("");
+    console.log("✅✅✅ AUTENTICADO COM SUCESSO! ✅✅✅");
+    console.log("Aguardando evento 'ready' para sincronizar dados...");
+    console.log("");
     // NÃO registrar listener aqui - esperar pelo evento 'ready'
   });
 
   client.on("ready", () => {
     lastQr = null;
     lastQrTime = 0;
+    qrGeneratedTime = 0;
     isConnected = true;
     statusMessage = "Conectado e pronto!";
     reconnectAttempts = 0;
@@ -278,10 +298,19 @@ const setupEventHandlers = () => {
     const pushname = client.info?.pushname || 'sem nome';
     const number = client.info?.wid?._serialized || 'desconhecido';
     saveSessionInfo(number, pushname);
-    console.log("✅ [READY] Cliente pronto! Usuário:", pushname);
+    
+    console.log("");
+    console.log("═════════════════════════════════════════════════════════════");
+    console.log("✅✅✅ BOT CONECTADO E PRONTO! ✅✅✅");
+    console.log("═════════════════════════════════════════════════════════════");
+    console.log("");
+    console.log("👤 Conectado como:", pushname);
+    console.log("📱 Número:", number);
+    console.log("💬 Pronto para receber mensagens");
+    console.log("");
     
     // CRÍTICO: Registrar listener AGORA que client está pronto
-    console.log("[READY] 🔧 Registrando listener de mensagens...");
+    console.log("🔧 Registrando listener de mensagens...");
     setupMessageListener();
     
     startKeepAlive();
@@ -299,9 +328,10 @@ const setupEventHandlers = () => {
 
   client.on("auth_failure", (msg) => {
     isConnected = false;
+    messageListenerActive = false;
     statusMessage = "Falha na autenticação";
-    msgListenerRegistered = false;
-    console.error("❌ Falha na autenticação:", msg);
+    console.error("❌ FALHA NA AUTENTICAÇÃO:", msg);
+    console.error("⏱️  O QR pode ter expirado. Recarregue a página para novo QR Code.");
     reconnectAttempts = 0;
   });
 
@@ -377,22 +407,39 @@ const forceMessageListener = () => {
 };
 
 // =====================================
-// VERIFICAÇÃO PERIÓDICA DE LISTENER
+// VERIFICAÇÃO PERIÓDICA DE LISTENER E QR
 // =====================================
 let lastListenerCheck = 0;
 setInterval(() => {
-  if (!isConnected || !client) return;
+  if (!client) return;
   
   const now = Date.now();
   if (now - lastListenerCheck < 15000) return; // Check a cada 15 segundos
   lastListenerCheck = now;
   
-  // Verificar listener regularmente
-  if (!messageListenerActive) {
-    console.log("[CHECK-LISTENER] ⚠️ Listener não está ativo - reiniciando...");
-    setupMessageListener();
-  } else {
-    console.log("[CHECK-LISTENER] ✅ Listener ativo e funcionando");
+  // Verificar listener se conectado
+  if (isConnected) {
+    if (!messageListenerActive) {
+      console.log("[CHECK-LISTENER] ⚠️ Listener não está ativo - reiniciando...");
+      setupMessageListener();
+    } else {
+      console.log("[CHECK-LISTENER] ✅ Listener ativo e funcionando");
+    }
+  }
+  
+  // Verificar QR timeout (se esperando por autenticação)
+  if (!isConnected && lastQr && qrGeneratedTime > 0) {
+    const qrAge = now - qrGeneratedTime;
+    if (qrAge > QR_TIMEOUT) {
+      console.log("");
+      console.log("⏰ QR CODE EXPIRADO! Gerando novo...");
+      console.log("");
+      // Force novo QR escaneando sem desconectar
+      lastQr = null;
+      lastQrTime = 0;
+      qrGeneratedTime = 0;
+      statusMessage = "QR expirado - gerando novo";
+    }
   }
 }, 15000);
 
@@ -653,15 +700,23 @@ const initializeClient = async () => {
   try {
     const hasSession = hasExistingSession();
     
-    console.log("[INIT] Inicializando cliente WhatsApp...");
+    console.log("");
+    console.log("═════════════════════════════════════════════════════════════");
+    console.log("🚀 INICIALIZANDO CLIENTE WHATSAPP");
+    console.log("═════════════════════════════════════════════════════════════");
+    console.log("");
+    
     if (hasSession) {
-      console.log("[INIT] 🔄 Sessão anterior detectada - Reconectando automaticamente (sem QR)...");
+      console.log("✅ Sessão anterior detectada");
+      console.log("🔄 Reconectando automaticamente (sem QR)...");
       const sessionInfo = loadSessionInfo();
-      console.log("[INIT] Conectando como:", sessionInfo?.name || sessionInfo?.number || 'desconhecido');
+      console.log("👤 Conectando como:", sessionInfo?.name || sessionInfo?.number || 'desconhecido');
     } else {
-      console.log("[INIT] ℹ️  Nenhuma sessão anterior - QR Code será solicitado");
+      console.log("❌ Nenhuma sessão anterior");
+      console.log("📲 QR Code será solicitado para autenticação");
     }
     
+    console.log("");
     statusMessage = "Aguardando autenticação...";
     isConnected = false;
     messageListenerActive = false;
@@ -669,19 +724,20 @@ const initializeClient = async () => {
     
     // CRÍTICO: Registrar handlers ANTES de inicializar
     if (!eventHandlersSetup) {
-      console.log("[INIT] Registrando event handlers...");
+      console.log("🔧 Registrando event handlers...");
       setupEventHandlers();
     }
     
-    console.log("[INIT] Chamando client.initialize()...");
+    console.log("⏳ Inicializando cliente...");
     await client.initialize();
     
-    console.log("[INIT] ✅ Cliente inicializado!");
-    console.log("[INIT] Aguardando evento 'ready'...");
+    console.log("✅ Cliente inicializado com sucesso!");
+    console.log("⏱️  Aguardando evento 'ready' para sincronizar sessão...");
+    console.log("");
     
   } catch (err) {
-    console.error("[INIT] ❌ Erro na inicialização:", err.message);
-    console.error(err.stack);
+    console.error("❌ ERRO NA INICIALIZAÇÃO:", err.message);
+    if (err.stack) console.error(err.stack);
     await attemptReconnect();
   }
 };
@@ -960,8 +1016,14 @@ async function handleMessage(msg) {
     processedMessages.set(msgKey, now);
     
     // Log com mais detalhes
-    console.log(`[MSG] ✅ De ${from}: "${text}" (${msg.timestamp})`);
-    console.log(`[MSG] Stats - Usuários: ${userMenuStates.size}, Processadas: ${processedMessages.size}`);
+    console.log("");
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log(`[MSG] ✅ MENSAGEM RECEBIDA DE ${from}`);
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log(`📨 Conteúdo: "${text}"`);
+    console.log(`⏱️  Timestamp: ${msg.timestamp}`);
+    console.log(`📊 Stats - Usuários no menu: ${userMenuStates.size}, Mensagens processadas: ${processedMessages.size}`);
+    console.log("");
 
     // Verificar palavras-chave do menu
     const menuKeywords = /^(menu|oi|olá|ola|bom dia|boa tarde|boa noite|hi|hello|start)$/i;
