@@ -98,6 +98,7 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 const INITIAL_RECONNECT_DELAY = 5000;
 let messageListenerActive = false; // Única fonte de verdade
 let eventHandlersSetup = false;
+let messagesReceived = 0; // Contador para debug
 
 // =====================================
 // ESTRUTURAS DE DADOS
@@ -365,24 +366,37 @@ const setupMessageListener = () => {
     return;
   }
   
-  console.log("[LISTENER] 🔧 Configurando listener de mensagens...");
+  console.log("[LISTENER] 🔧 Iniciando configuração do listener de mensagens...");
+  console.log("[LISTENER] Tentando remover listeners antigos...");
   
   try {
-    // Remover listeners antigos
-    client.removeAllListeners('message');
+    // Remover listeners antigos APENAS se existirem
+    const listeners = client.listenerCount('message');
+    console.log(`[LISTENER] Listeners existentes de 'message': ${listeners}`);
+    
+    if (listeners > 0) {
+      client.removeAllListeners('message');
+      console.log("[LISTENER] ✅ Listeners antigos removidos");
+    }
   } catch (e) {
-    console.log("[LISTENER] Info: nenhum listener anterior");
+    console.log("[LISTENER] Info: erro ao remover listeners antigos (pode ser normal):", e.message);
   }
   
   // Registrar novo listener
   try {
-    client.on('message', async (msg) => {
+    const messageHandler = async (msg) => {
+      // Log IMEDIATO sem nenhuma validação
+      messagesReceived++;
+      console.log(`\n[LISTENER-HIT] 🎯 EVENTO MESSAGE ACIONADO! Total recebidas: ${messagesReceived}`);
+      console.log(`[LISTENER-HIT] msg.from: ${msg?.from}`);
+      console.log(`[LISTENER-HIT] msg.body: ${msg?.body}`);
+      
       if (!msg || !msg.from) {
         console.log("[MSG] ❌ Mensagem vazia ou sem remetente");
         return;
       }
       
-      console.log(`[MSG] ✅ Recebido de ${msg.from}: "${msg.body}" (timestamp: ${msg.timestamp})`);
+      console.log(`[MSG] ✅ Processando: "${msg.body}"`);
       
       try {
         await handleMessage(msg);
@@ -390,12 +404,18 @@ const setupMessageListener = () => {
         console.error("[MSG] ❌ Erro ao processar mensagem:", err.message);
         console.error(err.stack);
       }
-    });
+    };
+    
+    // Registrar com referência para poder remover depois se necessário
+    client.on('message', messageHandler);
     
     messageListenerActive = true;
-    console.log("[LISTENER] ✅ Listener registrado e ativo!");
+    console.log("[LISTENER] ✅✅✅ LISTENER REGISTRADO E ATIVO! ✅✅✅");
+    console.log("[LISTENER] Pronto para receber mensagens do WhatsApp");
+    console.log("[LISTENER] Aguardando mensagens...\n");
   } catch (err) {
-    console.error("[LISTENER] ❌ Erro ao registrar listener:", err.message);
+    console.error("[LISTENER] ❌ ERRO AO REGISTRAR LISTENER:", err.message);
+    console.error(err.stack);
     messageListenerActive = false;
   }
 };
@@ -410,21 +430,31 @@ const forceMessageListener = () => {
 // VERIFICAÇÃO PERIÓDICA DE LISTENER E QR
 // =====================================
 let lastListenerCheck = 0;
+let lastMessagesReceivedCheck = 0;
+
 setInterval(() => {
   if (!client) return;
   
   const now = Date.now();
-  if (now - lastListenerCheck < 15000) return; // Check a cada 15 segundos
+  if (now - lastListenerCheck < 10000) return; // Check a cada 10 segundos (aumentei frequência)
   lastListenerCheck = now;
   
   // Verificar listener se conectado
   if (isConnected) {
     if (!messageListenerActive) {
-      console.log("[CHECK-LISTENER] ⚠️ Listener não está ativo - reiniciando...");
+      console.log("[CHECK-LISTENER] ⚠️ Listener NÃO está ativo - reiniciando...");
       setupMessageListener();
     } else {
-      console.log("[CHECK-LISTENER] ✅ Listener ativo e funcionando");
+      // Verificar se listener está realmente recebendo mensagens
+      if (lastMessagesReceivedCheck !== messagesReceived) {
+        lastMessagesReceivedCheck = messagesReceived;
+        console.log(`[CHECK-LISTENER] ✅ Listener ativo e recebendo mensagens (total: ${messagesReceived})`);
+      } else {
+        console.log(`[CHECK-LISTENER] ✅ Listener ativo e aguardando mensagens (recebidas: ${messagesReceived})`);
+      }
     }
+  } else {
+    console.log("[CHECK-LISTENER] ℹ️  Bot não conectado ainda");
   }
   
   // Verificar QR timeout (se esperando por autenticação)
@@ -441,7 +471,7 @@ setInterval(() => {
       statusMessage = "QR expirado - gerando novo";
     }
   }
-}, 15000);
+}, 10000);
 
 // =====================================
 // ROTAS DO SERVIDOR WEB
@@ -574,7 +604,16 @@ app.get('/debug', (req, res) => {
     },
     users: userMenuStates.size,
     cache: processedMessages.size,
-    reconnectAttempts
+    reconnectAttempts,
+    listenerStatus: {
+      messageListenerActive,
+      messagesReceived,
+      eventHandlersSetup
+    },
+    clientInfo: {
+      pushname: client?.info?.pushname || 'não conectado',
+      number: client?.info?.wid?._serialized || 'não conectado'
+    }
   });
 });
 
@@ -636,6 +675,46 @@ app.get('/reset-qr-only', (req, res) => {
     res.json({ status: "QR Code limpo. Acesse /qr em 30 segundos para novo scan." });
   }).catch(err => {
     res.status(500).json({ error: err.message });
+  });
+});
+
+app.get('/test-listener', async (req, res) => {
+  console.log("");
+  console.log("═════════════════════════════════════════════════════════════");
+  console.log("🧪 TESTE DE LISTENER ACIONADO VIA HTTP");
+  console.log("═════════════════════════════════════════════════════════════");
+  console.log("");
+  
+  const fakeMsg = {
+    from: "5511999999999@c.us",
+    body: "teste",
+    timestamp: Date.now(),
+    getChat: async () => ({ isGroup: false })
+  };
+  
+  try {
+    await handleMessage(fakeMsg);
+    res.json({ 
+      status: "✅ Teste executado",
+      result: "Se viu mensagens logadas acima, o listener funciona!",
+      messagesReceived
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      error: err.message,
+      messagesReceived 
+    });
+  }
+});
+
+app.get('/listener-status', (req, res) => {
+  res.json({
+    messageListenerActive,
+    messagesReceived,
+    eventHandlersSetup,
+    isConnected,
+    botConnectedAs: client?.info?.pushname || 'desconectado',
+    nota: messagesReceived === 0 ? "⚠️ Nenhuma mensagem recebida ainda" : `✅ ${messagesReceived} mensagens recebidas`
   });
 });
 
@@ -989,18 +1068,34 @@ const handleMessageOption = async (option, from, isBusinessHours) => {
 
 async function handleMessage(msg) {
   const from = msg.from;
-  const text = msg.body ? msg.body.trim().toLowerCase() : "";
+  let text = "";
+  
+  try {
+    text = msg.body ? msg.body.trim().toLowerCase() : "";
+    console.log(`[MSG-HANDLER] Iniciando processamento: from=${from}, text="${text}"`);
+  } catch (err) {
+    console.error("[MSG-HANDLER] ❌ Erro ao extrair texto:", err.message);
+    return;
+  }
 
   try {
     // Ignorar mensagens vazias
     if (!text) {
+      console.log(`[MSG] Ignorando mensagem vazia de ${from}`);
       return;
     }
 
     // Ignorar grupos
-    const chat = await msg.getChat();
-    if (chat.isGroup) {
-      console.log(`[MSG] Ignorando mensagem de grupo`);
+    let chat = null;
+    try {
+      chat = await msg.getChat();
+    } catch (err) {
+      console.error("[MSG] ❌ Erro ao obter chat:", err.message);
+      return;
+    }
+    
+    if (chat && chat.isGroup) {
+      console.log(`[MSG] Ignorando mensagem de grupo de ${from}`);
       return;
     }
 
@@ -1009,7 +1104,7 @@ async function handleMessage(msg) {
     const now = Date.now();
     
     if (processedMessages.has(msgKey)) {
-      console.log(`[MSG] Ignoring duplicate: ${from}`);
+      console.log(`[MSG] Ignorando duplicada: ${from}`);
       return;
     }
 
@@ -1053,7 +1148,7 @@ async function handleMessage(msg) {
     }
 
   } catch (err) {
-    console.error(`[MSG] ❌ Erro ao processar mensagem de ${from}:`, err.message);
+    console.error(`[MSG] ❌ ERRO CRÍTICO ao processar mensagem de ${from}:`, err.message);
     console.error(err.stack);
     try {
       await client.sendMessage(from, "❌ Desculpe, ocorreu um erro. Digite *MENU* para reiniciar.");
